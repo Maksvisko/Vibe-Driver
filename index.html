@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>VIBE DRIVER — PS1 Radio Racing</title>
+</head>
+<body>
+  <div id="app">
+    <canvas id="game"></canvas>
+
+    <!-- HUD -->
+    <div id="hud" class="hidden">
+      <div class="hud-speed">
+        <span id="speed-value">0</span><span class="hud-unit">KM/H</span>
+      </div>
+      <div class="hud-lap">
+        <div>ЛКР <span id="lap-count">1</span></div>
+        <div>ВРЕМЯ <span id="lap-time">0:00.00</span></div>
+        <div>РЕКОРД <span id="best-time">—</span></div>
+      </div>
+      <div class="hud-now">
+        <div class="eq" id="hud-eq"></div>
+        <div id="hud-track">♪ РАДИО ПУСТО</div>
+      </div>
+      <canvas id="minimap" width="180" height="180"></canvas>
+      <div class="hud-hint">TAB — КОЛЕСО РАДИО</div>
+    </div>
+
+    <!-- Intro -->
+    <div id="intro">
+      <div class="intro-inner">
+        <h1 class="title glitch" data-text="VIBE DRIVER">VIBE DRIVER</h1>
+        <p class="subtitle">PS1 RADIO RACING</p>
+        <div class="controls-grid">
+          <span>W/S</span><span>ГАЗ / ТОРМОЗ</span>
+          <span>A/D</span><span>РУЛЬ</span>
+          <span>SPACE</span><span>РИЧНАЯ РУЧКА</span>
+          <span>TAB</span><span>КОЛЕСО РАДИО</span>
+          <span>R</span><span>ВЕРНУТЬСЯ НА ТРАССУ</span>
+          <span>M</span><span>ЗВУК ДВИГАТЕЛЯ</span>
+        </div>
+        <p class="press-start blink">НАЖМИ ENTER ЧТОБЫ ЕХАТЬ</p>
+        <p class="hint-small">треки клади в <code>public/music/</code> и запусти <code>npm run scan-music</code></p>
+      </div>
+    </div>
+
+    <!-- Pause -->
+    <div id="pause" class="overlay hidden">
+      <h2 class="overlay-title">ПАУЗА</h2>
+      <p>ESC — ПРОДОЛЖИТЬ</p>
+    </div>
+
+    <!-- Radio wheel -->
+    <div id="radio" class="overlay hidden">
+      <div class="radio-frame">
+        <div class="radio-header">◆ VIBE FM — КОЛЕСО РАДИО ◆</div>
+        <div class="wheel-stage">
+          <div class="wheel-pointer">▼</div>
+          <div class="wheel-disc" id="wheel-disc">
+            <!-- items injected -->
+          </div>
+          <div class="wheel-hub">
+            <div class="vinyl" id="vinyl">
+              <div class="vinyl-label" id="vinyl-label">FM</div>
+            </div>
+            <div class="now-playing">
+              <div id="now-title">— НЕТ ТРЕКОВ —</div>
+              <div id="now-artist">клади mp3 в public/music/</div>
+            </div>
+            <canvas id="spectrum" width="220" height="48"></canvas>
+          </div>
+        </div>
+        <div class="radio-footer">
+          <span>◀▶ / A D — КРУТИТЬ</span>
+          <span>ENTER — ИГРАТЬ</span>
+          <span>SPACE — СТОП</span>
+          <span>TAB — ЗАКРЫТЬ</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- No tracks toast -->
+    <div id="toast" class="hidden"></div>
+  </div>
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>
