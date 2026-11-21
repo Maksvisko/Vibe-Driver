@@ -1,0 +1,372 @@
+/**
+ * VIBE DRIVER — main entry: PS1 render loop, camera, HUD, game states.
+ */
+import '@fontsource/press-start-2p';
+import '@fontsource/vt323';
+import './style.css';
+
+import * as THREE from 'three';
+import { PS1Renderer } from './render/ps1.js';
+import { Keyboard } from './input/keyboard.js';
+import { Track } from './game/track.js';
+import { buildCar } from './game/carModel.js';
+import { CarPhysics } from './game/carPhysics.js';
+import { MusicPlayer } from './audio/music.js';
+import { EngineSound } from './audio/engineSound.js';
+import { RadioWheel } from './ui/radioWheel.js';
+
+// ---------------- boot ----------------
+const canvas = document.getElementById('game');
+const ps1 = new PS1Renderer(canvas, { pixelHeight: 260 });
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x07060f);
+scene.fog = new THREE.Fog(0x0b0820, 60, 340);
+
+const camera = new THREE.PerspectiveCamera(68, innerWidth / innerHeight, 0.3, 900);
+
+// lights — moonlit night
+const hemi = new THREE.HemisphereLight(0x3a3a7a, 0x14101f, 1.15);
+scene.add(hemi);
+const moon = new THREE.DirectionalLight(0x8fa8ff, 1.4);
+moon.position.set(-120, 180, -60);
+scene.add(moon);
+const neonFill = new THREE.DirectionalLight(0xff4df3, 0.35);
+neonFill.position.set(80, 40, 120);
+scene.add(neonFill);
+
+// stars
+{
+  const starGeo = new THREE.BufferGeometry();
+  const n = 500;
+  const arr = new Float32Array(n * 3);
+  for (let i = 0; i < n; i++) {
+    const a = Math.random() * Math.PI * 2;
+    const r = 500 + Math.random() * 300;
+    const y = 60 + Math.random() * 380;
+    arr[i * 3] = Math.cos(a) * r;
+    arr[i * 3 + 1] = y;
+    arr[i * 3 + 2] = Math.sin(a) * r;
+  }
+  starGeo.setAttribute('position', new THREE.BufferAttribute(arr, 3));
+  const stars = new THREE.Points(starGeo, new THREE.PointsMaterial({
+    color: 0xcdd8ff, size: 2.4, sizeAttenuation: false,
+  }));
+  scene.add(stars);
+}
+
+// world
+const track = new Track(scene, (m) => ps1.patch(m));
+const car = buildCar((m) => ps1.patch(m));
+scene.add(car.group);
+ps1.patchTree(car.group);
+
+const physics = new CarPhysics(track);
+physics.spawn(6);
+
+// ---------------- state ----------------
+const keys = new Keyboard();
+const music = new MusicPlayer();
+const engine = new EngineSound();
+
+let state = 'intro'; // intro | driving | paused
+let radioOpen = false;
+
+const wheel = new RadioWheel({
+  disc: document.getElementById('wheel-disc'),
+  music,
+  onSelect: () => updateHudTrack(),
+  onClose: () => { radioOpen = false; },
+});
+
+// ---------------- DOM refs ----------------
+const $ = (id) => document.getElementById(id);
+const dom = {
+  hud: $('hud'), intro: $('intro'), pause: $('pause'),
+  speed: $('speed-value'), lapCount: $('lap-count'),
+  lapTime: $('lap-time'), bestTime: $('best-time'),
+  hudTrack: $('hud-track'), hudEq: $('hud-eq'),
+  minimap: $('minimap'), toast: $('toast'),
+};
+
+// EQ bars
+const EQ_BARS = 10;
+for (let i = 0; i < EQ_BARS; i++) dom.hudEq.appendChild(document.createElement('i'));
+const eqEls = [...dom.hudEq.children];
+
+// ---------------- helpers ----------------
+function fmtTime(s) {
+  if (s == null) return '—';
+  const m = Math.floor(s / 60);
+  const sec = Math.floor(s % 60);
+  const cs = Math.floor((s % 1) * 100);
+  return `${m}:${String(sec).padStart(2, '0')}.${String(cs).padStart(2, '0')}`;
+}
+
+let toastTimer = null;
+function toast(msg, ms = 3200) {
+  dom.toast.textContent = msg;
+  dom.toast.classList.remove('hidden');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => dom.toast.classList.add('hidden'), ms);
+}
+
+function updateHudTrack() {
+  const t = music.current;
+  dom.hudTrack.textContent = t
+    ? `♪ ${t.artist} — ${t.title}${music.playing ? '' : ' (П)'}`
+    : '♪ РАДИО ПУСТО — TAB';
+}
+
+// ---------------- minimap (static path once) ----------------
+const mmCtx = dom.minimap.getContext('2d');
+track.drawMinimapPath(mmCtx, dom.minimap.width, dom.minimap.height);
+
+// ---------------- camera rig ----------------
+const camPos = new THREE.Vector3();
+const camTarget = new THREE.Vector3();
+const tmpFwd = new THREE.Vector3();
+
+function updateCamera(dt, introMode = false) {
+  const fwd = physics.forwardVec(tmpFwd);
+  const speed = physics.speed;
+
+  if (introMode) {
+    // slow orbit around car
+    const t = performance.now() * 0.00022;
+    camPos.set(
+      physics.pos.x + Math.cos(t) * 14,
+      6.5,
+      physics.pos.z + Math.sin(t) * 14
+    );
+    camera.position.lerp(camPos, 1 - Math.exp(-4 * dt));
+    camera.lookAt(physics.pos.x, 1.2, physics.pos.z);
+    return;
+  }
+
+  // chase cam — pulls back and lowers with speed
+  const back = 8.5 + speed * 0.11;
+  const height = 3.4 + speed * 0.02;
+  camPos.set(
+    physics.pos.x - fwd.x * back,
+    height,
+    physics.pos.z - fwd.z * back
+  );
+  // look slightly ahead
+  camTarget.set(
+    physics.pos.x + fwd.x * 6,
+    1.3,
+    physics.pos.z + fwd.z * 6
+  );
+
+  const stiff = 1 - Math.exp(-6.5 * dt);
+  camera.position.lerp(camPos, stiff);
+  camera.lookAt(camTarget);
+
+  // speed FOV kick
+  const targetFov = 66 + Math.min(18, speed * 0.42);
+  camera.fov += (targetFov - camera.fov) * (1 - Math.exp(-4 * dt));
+  camera.updateProjectionMatrix();
+}
+
+// ---------------- input handling per frame ----------------
+function handleGlobalKeys() {
+  if (state === 'intro') {
+    if (keys.wasPressed('Enter') || keys.wasPressed('NumpadEnter') || keys.wasPressed('Space')) {
+      state = 'driving';
+      dom.intro.classList.add('hidden');
+      dom.hud.classList.remove('hidden');
+      // user gesture → start first track if any
+      if (music.tracks.length) {
+        music.play(0).then(updateHudTrack);
+      } else {
+        updateHudTrack();
+        toast('Нет треков! Положи mp3 в public/music/ и запусти: npm run scan-music');
+      }
+    }
+    return;
+  }
+
+  if (radioOpen) {
+    wheel.handleInput(keys);
+    if (keys.wasPressed('Tab') || keys.wasPressed('Escape')) {
+      // wheel hides itself via handleInput too; guard double
+    }
+    return;
+  }
+
+  // pause
+  if (keys.wasPressed('Escape')) {
+    if (state === 'driving') {
+      state = 'paused';
+      dom.pause.classList.remove('hidden');
+      music.pause();
+      engine.cut();
+    } else if (state === 'paused') {
+      state = 'driving';
+      dom.pause.classList.add('hidden');
+      music.resume();
+    }
+  }
+
+  if (state !== 'driving') return;
+
+  // radio wheel
+  if (keys.wasPressed('Tab')) {
+    radioOpen = true;
+    wheel.show();
+    return;
+  }
+
+  // reset to track
+  if (keys.wasPressed('KeyR')) {
+    physics.spawn(physics.lastIndex);
+    toast('Возврат на трассу');
+  }
+
+  // engine sound toggle
+  if (keys.wasPressed('KeyM')) {
+    const on = engine.toggle();
+    toast(`Звук двигателя: ${on ? 'ВКЛ' : 'ВЫКЛ'}`, 1400);
+  }
+
+  // quick music controls
+  if (keys.wasPressed('BracketRight')) { music.next(); updateHudTrack(); }
+  if (keys.wasPressed('BracketLeft')) { music.prev(); updateHudTrack(); }
+  if (keys.wasPressed('KeyP')) {
+    music.playing ? music.pause() : music.resume();
+    updateHudTrack();
+  }
+}
+
+// ---------------- HUD update ----------------
+let hudAccum = 0;
+function updateHud(dt) {
+  hudAccum += dt;
+  // speed & times every frame cheap; eq throttled
+  dom.speed.textContent = String(Math.round(Math.abs(physics.kmh)));
+  dom.lapCount.textContent = String(physics.lap);
+  dom.lapTime.textContent = fmtTime(physics.lapTime);
+  dom.bestTime.textContent = fmtTime(physics.bestLap);
+
+  if (hudAccum > 0.08) {
+    hudAccum = 0;
+    const levels = music.spectrum(EQ_BARS);
+    eqEls.forEach((el, i) => {
+      el.style.height = `${Math.round(levels[i] * 22)}px`;
+    });
+
+    // minimap car dot
+    mmCtx.save();
+    // we only drew path once; redraw path+dot cheaply (180px canvas)
+    mmCtx.clearRect(0, 0, 180, 180);
+    track.drawMinimapPath(mmCtx, 180, 180);
+    const p = track.mapPoint(physics.pos.x, physics.pos.z);
+    if (p) {
+      mmCtx.fillStyle = '#ff2a4d';
+      mmCtx.beginPath();
+      mmCtx.arc(p.x, p.y, 5, 0, Math.PI * 2);
+      mmCtx.fill();
+      // heading tick
+      mmCtx.strokeStyle = '#fff';
+      mmCtx.lineWidth = 2;
+      mmCtx.beginPath();
+      mmCtx.moveTo(p.x, p.y);
+      mmCtx.lineTo(p.x + Math.sin(physics.heading) * 9, p.y + Math.cos(physics.heading) * 9);
+      mmCtx.stroke();
+    }
+    mmCtx.restore();
+  }
+}
+
+// ---------------- main loop ----------------
+let last = performance.now();
+
+function frame(now) {
+  requestAnimationFrame(frame);
+  const dt = Math.min(0.05, (now - last) / 1000);
+  last = now;
+
+  handleGlobalKeys();
+
+  const inRadio = radioOpen;
+  const paused = state === 'paused' || state === 'intro';
+
+  // physics — slows way down while radio open (chill, not stopped)
+  if (state === 'driving') {
+    const timeScale = inRadio ? 0.25 : 1.0;
+    let input;
+    if (inRadio) {
+      input = { throttle: 0, steer: 0, handbrake: true };
+    } else {
+      input = {
+        throttle: keys.throttle,
+        steer: -keys.steer, // A = left → steer -1? keys.steer: A→+1... flip so A = left
+        handbrake: keys.handbrake,
+      };
+      // keys.steer: A → 1? check keyboard: steer = A(1) - D(1)... A pressed → 1, D → -1
+      // physics expects: -1 = left, +1 = right → pass -keys.steer
+    }
+    physics.update(dt * timeScale, input);
+  }
+
+  // car visuals: heading + wheel spin/steer
+  car.group.position.set(physics.pos.x, 0, physics.pos.z);
+  car.group.rotation.y = physics.heading;
+
+  // body roll & pitch from lateral/long accel (visual only)
+  const roll = THREE.MathUtils.clamp(-physics.accelLat * 0.012, -0.09, 0.09);
+  const pitch = THREE.MathUtils.clamp(physics.accelLong * 0.008, -0.07, 0.07);
+  car.group.rotation.z += (roll - car.group.rotation.z) * Math.min(1, dt * 8);
+  car.group.rotation.x += (pitch - car.group.rotation.x) * Math.min(1, dt * 8);
+
+  // suspension bounce when wall hit
+  const squash = physics.wallHit * 0.15;
+  car.group.scale.y = 1 - squash;
+
+  // wheels
+  const wheelSpin = physics.speed * dt / 0.42;
+  car.wheels.forEach((w) => {
+    w.group.rotation.x += wheelSpin;
+    if (w.front) w.group.rotation.y = -physics.steer * 1.1;
+  });
+
+  // underglow pulse with music
+  if (car.glow) {
+    const lvl = music.playing ? music.spectrum(4)[0] : 0.25;
+    car.glow.material.opacity = 0.3 + lvl * 0.5;
+  }
+
+  // camera
+  updateCamera(dt, state === 'intro' || (state === 'paused' && !inRadio));
+
+  // engine audio
+  if (state === 'driving' && !paused) {
+    engine.update(physics.gearRpm, Math.abs(keys.throttle) * (inRadio ? 0 : 1) + (inRadio ? 0 : 0.4));
+  } else {
+    engine.cut();
+  }
+
+  // HUD
+  if (state !== 'intro') updateHud(dt);
+
+  // render
+  ps1.render(scene, camera);
+  keys.endFrame();
+}
+
+// ---------------- init ----------------
+(async function init() {
+  await music.load();
+  wheel.build();
+  updateHudTrack();
+
+  if (music.tracks.length === 0) {
+    toast('📻 Положи треки в public/music/ и запусти npm run scan-music — потом F5', 6000);
+  }
+
+  // expose for debugging
+  window.__vibe = { music, physics, track, engine, wheel };
+
+  requestAnimationFrame(frame);
+})();

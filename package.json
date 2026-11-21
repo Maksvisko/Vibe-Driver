@@ -1,0 +1,21 @@
+{
+  "name": "vibe-driver",
+  "private": true,
+  "version": "0.1.0",
+  "description": "PS1-style 3D racing with a radio wheel — the music is the main character",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "scan-music": "node scripts/scan-music.mjs"
+  },
+  "dependencies": {
+    "@fontsource/press-start-2p": "^5.1.0",
+    "@fontsource/vt323": "^5.1.0",
+    "three": "^0.170.0"
+  },
+  "devDependencies": {
+    "vite": "^6.0.0"
+  }
+}
