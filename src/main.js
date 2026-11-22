@@ -17,7 +17,24 @@ import { RadioWheel } from './ui/radioWheel.js';
 
 // ---------------- boot ----------------
 const canvas = document.getElementById('game');
-const ps1 = new PS1Renderer(canvas, { pixelHeight: 260 });
+
+/** Friendly fatal screen instead of a white-page crash. */
+function showFatal(msg) {
+  const el = document.getElementById('fatal');
+  if (el) {
+    if (msg) el.querySelector('p').innerHTML = msg;
+    el.classList.remove('hidden');
+  }
+  console.error(msg);
+}
+
+let ps1 = null;
+try {
+  ps1 = new PS1Renderer(canvas, { pixelHeight: 260 });
+} catch (e) {
+  showFatal('Браузер не смог запустить WebGL.<br>Попробуй другой браузер или включи аппаратное ускорение.');
+  throw e; // nothing to render without WebGL — message already shown
+}
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x07060f);
@@ -170,19 +187,29 @@ function updateCamera(dt, introMode = false) {
 }
 
 // ---------------- input handling per frame ----------------
+/** Start the game: unlock audio (user gesture), begin music, show HUD. */
+async function startGame() {
+  if (state !== 'intro') return;
+  state = 'driving';
+  dom.intro.classList.add('hidden');
+  dom.hud.classList.remove('hidden');
+
+  try {
+    const mode = await music.startDefault();
+    engine.unlock();
+    if (mode === 'synth') {
+      toast('📻 Играет встроенный SYNTHWAVE LOOP — свои треки: public/music/ → npm run scan-music', 6000);
+    }
+  } catch (e) {
+    console.warn('audio start failed:', e);
+  }
+  updateHudTrack();
+}
+
 function handleGlobalKeys() {
   if (state === 'intro') {
     if (keys.wasPressed('Enter') || keys.wasPressed('NumpadEnter') || keys.wasPressed('Space')) {
-      state = 'driving';
-      dom.intro.classList.add('hidden');
-      dom.hud.classList.remove('hidden');
-      // user gesture → start first track if any
-      if (music.tracks.length) {
-        music.play(0).then(updateHudTrack);
-      } else {
-        updateHudTrack();
-        toast('Нет треков! Положи mp3 в public/music/ и запусти: npm run scan-music');
-      }
+      startGame();
     }
     return;
   }
@@ -357,16 +384,45 @@ function frame(now) {
 
 // ---------------- init ----------------
 (async function init() {
-  await music.load();
-  wheel.build();
+  try {
+    await music.load();
+  } catch (e) {
+    console.warn('playlist load failed:', e);
+  }
+  try {
+    wheel.build();
+  } catch (e) {
+    console.warn('radio wheel build failed:', e);
+  }
   updateHudTrack();
 
+  // Start button + any click on intro = user gesture → unlock audio
+  const startBtn = document.getElementById('start-btn');
+  startBtn?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    startGame();
+  });
+  dom.intro.addEventListener('click', () => startGame());
+
+  // First gesture ANYWHERE on the page unlocks audio contexts (browser autoplay policy)
+  const unlockOnce = () => {
+    try { music.unlock(); } catch { /* ok */ }
+    try { engine.unlock(); } catch { /* ok */ }
+    window.removeEventListener('pointerdown', unlockOnce);
+    window.removeEventListener('keydown', unlockOnce);
+  };
+  window.addEventListener('pointerdown', unlockOnce);
+  window.addEventListener('keydown', unlockOnce);
+
   if (music.tracks.length === 0) {
-    toast('📻 Положи треки в public/music/ и запусти npm run scan-music — потом F5', 6000);
+    toast('📻 Свои треки: public/music/ → npm run scan-music. Пока играет встроенный synthwave', 6000);
   }
 
   // expose for debugging
   window.__vibe = { music, physics, track, engine, wheel };
 
   requestAnimationFrame(frame);
-})();
+})().catch((e) => {
+  showFatal('Ошибка инициализации: ' + (e?.message || e));
+  throw e;
+});

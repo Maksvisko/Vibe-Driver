@@ -86,6 +86,14 @@ export class EngineSound {
     }
   }
 
+  /** Call from a user gesture to pre-create + resume the context. */
+  unlock() {
+    this._init();
+    if (this.ctx && this.ctx.state === 'suspended') {
+      this.ctx.resume().catch(() => {});
+    }
+  }
+
   toggle() {
     this.enabled = !this.enabled;
     if (!this.enabled) this.cut();

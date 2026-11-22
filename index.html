@@ -32,6 +32,10 @@
       <div class="intro-inner">
         <h1 class="title glitch" data-text="VIBE DRIVER">VIBE DRIVER</h1>
         <p class="subtitle">PS1 RADIO RACING</p>
+
+        <button id="start-btn" type="button">НАЖМИ ДЛЯ СТАРТА</button>
+        <p class="start-hint blink">или нажми ПРОБЕЛ / ENTER</p>
+
         <div class="controls-grid">
           <span>W/S</span><span>ГАЗ / ТОРМОЗ</span>
           <span>A/D</span><span>РУЛЬ</span>
@@ -40,9 +44,14 @@
           <span>R</span><span>ВЕРНУТЬСЯ НА ТРАССУ</span>
           <span>M</span><span>ЗВУК ДВИГАТЕЛЯ</span>
         </div>
-        <p class="press-start blink">НАЖМИ ENTER ЧТОБЫ ЕХАТЬ</p>
-        <p class="hint-small">треки клади в <code>public/music/</code> и запусти <code>npm run scan-music</code></p>
+        <p class="hint-small">свои треки: <code>public/music/</code> → <code>npm run scan-music</code>.<br>без треков играет встроенный synthwave-loop</p>
       </div>
+    </div>
+
+    <!-- Fatal (WebGL unavailable) -->
+    <div id="fatal" class="overlay hidden">
+      <h2 class="overlay-title">НЕТ WEBGL</h2>
+      <p>Браузер не смог запустить 3D-рендер.<br>Попробуй другой браузер или включи аппаратное ускорение.</p>
     </div>
 
     <!-- Pause -->
