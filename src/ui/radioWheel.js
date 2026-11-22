@@ -93,37 +93,39 @@ export class RadioWheel {
   handleInput(keys) {
     if (!this.open) return;
 
-    let dir = 0;
-    if (keys.isDown('KeyA') || keys.isDown('ArrowLeft')) dir -= 1;
-    if (keys.isDown('KeyD') || keys.isDown('ArrowRight')) dir += 1;
+    // close keys must work even with an empty playlist
+    if (keys.wasPressed('Tab') || keys.wasPressed('Escape')) {
+      this.hide();
+      return;
+    }
 
     const n = this.music.tracks.length;
-    if (!n) return;
 
-    if (dir !== 0) {
-      this.spinVel += dir * 420; // deg/s²
-      this.spinVel = Math.max(-900, Math.min(900, this.spinVel));
+    if (n) {
+      let dir = 0;
+      if (keys.isDown('KeyA') || keys.isDown('ArrowLeft')) dir -= 1;
+      if (keys.isDown('KeyD') || keys.isDown('ArrowRight')) dir += 1;
+      if (dir !== 0) {
+        this.spinVel += dir * 420; // deg/s²
+        this.spinVel = Math.max(-900, Math.min(900, this.spinVel));
+      }
     }
 
     if (keys.wasPressed('Enter') || keys.wasPressed('NumpadEnter')) {
-      this._commit();
+      this._commit(); // with no tracks this toggles the built-in synth
     }
     if (keys.wasPressed('Space')) {
       if (this.music.playing) this.music.pause();
       else this.music.resume();
       this._updateNowPlaying();
     }
-    if (keys.wasPressed('KeyE') || keys.wasPressed('ArrowUp') || keys.wasPressed('KeyW')) {
-      this.selectBy(-1);
-    }
-    if (keys.wasPressed('KeyQ') || keys.wasPressed('ArrowDown') || keys.wasPressed('KeyS')) {
-      this.selectBy(1);
-    }
-    if (keys.wasPressed('Tab')) {
-      this.hide();
-    }
-    if (keys.wasPressed('Escape')) {
-      this.hide();
+    if (n) {
+      if (keys.wasPressed('KeyE') || keys.wasPressed('ArrowUp') || keys.wasPressed('KeyW')) {
+        this.selectBy(-1);
+      }
+      if (keys.wasPressed('KeyQ') || keys.wasPressed('ArrowDown') || keys.wasPressed('KeyS')) {
+        this.selectBy(1);
+      }
     }
   }
 

@@ -47,3 +47,15 @@ npm run dev          # http://localhost:5173
 npm run build     # dist/
 npm run preview
 ```
+
+## Деплой на GitHub Pages
+
+Настроен автоматический деплой: `.github/workflows/deploy.yml` собирает проект и публикует `dist/` на Pages при пуше в `main`.
+
+1. Репозиторий → **Settings → Pages → Source: GitHub Actions**
+2. Пуш в `main` → вкладка **Actions** → workflow **Deploy to GitHub Pages**
+3. Сайт: `https://<user>.github.io/Vibe-Driver/` (`base: '/Vibe-Driver/'` уже в `vite.config.js`)
+
+## Музыка без треков
+
+Если `public/music/` пуст или `playlist.json` не найден — игра не падает: стартует встроенный **Synthwave loop** (Web Audio API, Am–F–C–G, барабаны + бас + арпеджио). Как только добавишь свои треки через `npm run scan-music`, они появятся в колесе радио.

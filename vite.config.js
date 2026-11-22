@@ -1,7 +1,8 @@
 import { defineConfig } from 'vite';
 
 export default defineConfig({
-  base: './',
+  // GitHub Pages project site: https://<user>.github.io/Vibe-Driver/
+  base: '/Vibe-Driver/',
   server: {
     host: true,
     port: 5173,
