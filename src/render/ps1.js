@@ -1,8 +1,12 @@
 /**
  * PS1-style rendering pipeline:
- *  - scene rendered into a low-res target (pixelation)
- *  - vertex snapping in the vertex shader (classic PS1 "wobble")
+ *  - scene rendered into a low-res target (pixelation) — the ONLY source
+ *    of the retro look, together with dithering
  *  - color quantization + Bayer ordered dithering + vignette on upscale
+ *
+ * NOTE: vertex snapping ("PS1 wobble") was deliberately REMOVED — quantizing
+ * near-camera vertices to the low-res grid tore geometry into huge stretched
+ * triangles across the screen. Never reintroduce it.
  *
  * Stability: any failure (context, shader, post-process) degrades to a
  * plain direct Three.js render without crashing the game.
@@ -87,10 +91,7 @@ export class PS1Renderer {
       this._setupPost();
     });
 
-    // stable vector: patched materials keep referencing it across post rebuilds
-    this._snapRes = new THREE.Vector2(320, this.pixelHeight);
     this._setupPost();
-    this._patched = new WeakSet();
 
     this._resize();
     window.addEventListener('resize', () => this._resize());
@@ -111,7 +112,6 @@ export class PS1Renderer {
       this.postMat = new THREE.ShaderMaterial({
         uniforms: {
           tDiffuse: { value: this.target.texture },
-          uRes: { value: this._snapRes },
           uLevels: { value: 32.0 },
           uDither: { value: 0.035 },
         },
@@ -144,69 +144,24 @@ export class PS1Renderer {
         const ph = this.pixelHeight;
         const pw = Math.max(160, Math.round(ph * aspect / 2) * 2);
         this.target.setSize(pw, ph);
-        this.postMat.uniforms.uRes.value.set(pw, ph);
       }
     } catch (e) {
       console.warn('resize failed', e);
     }
   }
 
-  get snapResolution() {
-    return this.postMat?.uniforms?.uRes?.value || new THREE.Vector2(320, 240);
-  }
-
   /**
-   * Patch a material so its vertices snap to the low-res grid (PS1 wobble).
-   * If shader patching throws, the material is left unpatched (still renders).
+   * No-op kept for API compatibility: materials render unpatched.
+   * Vertex snapping was removed (it tore near-camera geometry into giant
+   * stretched triangles). The PS1 look comes from the low-res target +
+   * Bayer dithering in the post pass only.
    */
   patch(material) {
-    if (!material || this.mode !== 'ps1' || this._patched.has(material)) return material;
-    this._patched.add(material);
-
-    try {
-      const snap = this.snapResolution;
-      const prev = material.onBeforeCompile;
-      material.onBeforeCompile = (shader, renderer) => {
-        if (prev) prev(shader, renderer);
-        try {
-          if (shader.vertexShader.includes('#include <project_vertex>')) {
-            shader.uniforms.uSnapRes = { value: snap };
-            shader.vertexShader = `uniform vec2 uSnapRes;\n` + shader.vertexShader.replace(
-              '#include <project_vertex>',
-              /* glsl */ `
-              vec4 mvPosition = vec4( transformed, 1.0 );
-              #ifdef USE_INSTANCING
-                mvPosition = instanceMatrix * mvPosition;
-              #endif
-              mvPosition = modelViewMatrix * mvPosition;
-              gl_Position = projectionMatrix * mvPosition;
-              vec2 ndc = gl_Position.xy / max(abs(gl_Position.w), 0.0001);
-              vec2 grid = uSnapRes * 0.5;
-              ndc = floor(ndc * grid + 0.5) / grid;
-              gl_Position.xy = ndc * gl_Position.w;
-              `
-            );
-          }
-        } catch (e) {
-          console.warn('vertex snap patch failed (rendering unpatched):', e);
-        }
-      };
-      material.customProgramCacheKey = () => 'ps1-snap';
-      material.needsUpdate = true;
-    } catch (e) {
-      console.warn('material patch failed:', e);
-      this.mode = 'plain';
-    }
     return material;
   }
 
-  /** Convenience: patch every material on an object tree. */
+  /** No-op kept for API compatibility (see patch()). */
   patchTree(root) {
-    root.traverse((obj) => {
-      if (!obj.material) return;
-      const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
-      mats.forEach((m) => this.patch(m));
-    });
     return root;
   }
 
