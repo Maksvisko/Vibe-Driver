@@ -146,7 +146,7 @@ const tmpFwd = new THREE.Vector3();
 
 function updateCamera(dt, introMode = false) {
   const fwd = physics.forwardVec(tmpFwd);
-  const speed = physics.speed;
+  const speed = Math.max(0, physics.speed); // reverse shouldn't shrink distance
 
   if (introMode) {
     // slow orbit around car
@@ -161,27 +161,27 @@ function updateCamera(dt, introMode = false) {
     return;
   }
 
-  // chase cam — pulls back and lowers with speed
-  const back = 8.5 + speed * 0.11;
-  const height = 3.4 + speed * 0.02;
+  // chase cam — tight and stiff so drifts never throw it around
+  const back = 7.5 + speed * 0.07;
+  const height = 3.2 + speed * 0.015;
   camPos.set(
     physics.pos.x - fwd.x * back,
     height,
     physics.pos.z - fwd.z * back
   );
-  // look slightly ahead
+  // look just ahead of the car (short lever → less swing in slides)
   camTarget.set(
-    physics.pos.x + fwd.x * 6,
-    1.3,
-    physics.pos.z + fwd.z * 6
+    physics.pos.x + fwd.x * 3.5,
+    1.2,
+    physics.pos.z + fwd.z * 3.5
   );
 
-  const stiff = 1 - Math.exp(-6.5 * dt);
+  const stiff = 1 - Math.exp(-14 * dt); // was 6.5 — much snappier
   camera.position.lerp(camPos, stiff);
   camera.lookAt(camTarget);
 
-  // speed FOV kick
-  const targetFov = 66 + Math.min(18, speed * 0.42);
+  // speed FOV kick (gentler)
+  const targetFov = 66 + Math.min(14, speed * 0.3);
   camera.fov += (targetFov - camera.fov) * (1 - Math.exp(-4 * dt));
   camera.updateProjectionMatrix();
 }
