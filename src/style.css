@@ -22,7 +22,7 @@ html, body {
 
 #app { position: fixed; inset: 0; overflow: hidden; }
 
-/* Layering: canvas(0) < HUD(5) < intro(20) < overlays(30) < toast(40) */
+/* Layering: canvas(0) < HUD(5) < intro(20) < overlays(30) < toast(40) < drop(45) */
 #game {
   position: absolute;
   inset: 0;
@@ -453,4 +453,54 @@ html, body {
   #minimap { width: 120px; height: 120px; }
   .hud-hint { display: none; }
   .wheel-item { width: 110px; margin-left: -55px; font-size: 8px; }
+}
+
+/* ---------------- Drag & drop overlay ---------------- */
+#drop-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 45;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(7, 6, 15, 0.72);
+  backdrop-filter: blur(3px);
+  cursor: copy;
+  animation: dropPulse 0.9s ease-in-out infinite alternate;
+}
+#drop-overlay::before {
+  content: '';
+  position: absolute;
+  inset: 14px;
+  border: 3px dashed var(--neon-magenta);
+  box-shadow: 0 0 28px rgba(255, 77, 243, 0.5),
+              inset 0 0 28px rgba(77, 243, 255, 0.14);
+  pointer-events: none;
+}
+@keyframes dropPulse {
+  from { background: rgba(7, 6, 15, 0.68); }
+  to   { background: rgba(28, 8, 42, 0.78); }
+}
+.drop-inner { text-align: center; pointer-events: none; }
+.drop-glow {
+  font-size: 72px;
+  color: var(--neon-cyan);
+  text-shadow: 3px 0 var(--neon-magenta), -3px 0 var(--neon-cyan),
+               0 0 30px rgba(77, 243, 255, 0.8);
+  line-height: 1;
+  margin-bottom: 18px;
+}
+.drop-title {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 30px;
+  color: var(--neon-yellow);
+  text-shadow: 4px 0 var(--neon-magenta), -4px 0 var(--neon-cyan);
+  letter-spacing: 3px;
+  margin-bottom: 20px;
+}
+.drop-sub {
+  font-family: 'VT323', monospace;
+  font-size: 20px;
+  color: #b8b4e0;
+  letter-spacing: 1px;
 }

@@ -7,6 +7,9 @@ export default defineConfig({
     host: true,
     port: 5173,
     strictPort: false,
+    // allow the Arena preview host (https://{port}-{sandboxId}.e2b.app)
+    // Vite matches exact hosts or dot-wildcards (leading dot → subdomain suffix)
+    allowedHosts: ['.e2b.app'],
   },
   build: {
     target: 'es2020',

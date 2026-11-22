@@ -19,6 +19,7 @@ export class RadioWheel {
 
     this._raf = null;
     this._lastTs = 0;
+    this._resizeBound = null;
   }
 
   build() {
@@ -33,11 +34,7 @@ export class RadioWheel {
       el.className = 'wheel-item' + (compact ? ' compact' : '');
       const a = i * step;
       // place around circle: rotate(a) translateY(-R) then un-rotate text
-      const R = 42; // % of radius
-      el.style.transform =
-        `rotate(${a}deg) translateY(-${R}cqw) rotate(${-a}deg)`;
       el.style.transformOrigin = 'center';
-      // use container query units fallback → just use % of stage via translate trick:
       el.style.transform =
         `rotate(${a}deg) translateY(calc(var(--wheel-r, 240px) * -1)) rotate(${-a}deg)`;
       el.innerHTML = `<span class="num">${String(i + 1).padStart(2, '0')}</span>${escapeHtml(t.title)}`;
@@ -53,7 +50,10 @@ export class RadioWheel {
 
     // set wheel radius from stage size
     this._resizeRadius();
-    window.addEventListener('resize', this._resizeRadius = this._resizeRadius.bind(this));
+    if (!this._resizeBound) {
+      this._resizeBound = this._resizeRadius.bind(this);
+      window.addEventListener('resize', this._resizeBound);
+    }
   }
 
   _resizeRadius() {
@@ -238,13 +238,26 @@ export class RadioWheel {
     if (!canvas) return;
     const g = canvas.getContext('2d');
     const levels = this.music.spectrum(16);
-    g.clearRect(0, 0, canvas.width, canvas.height);
-    const bw = canvas.width / levels.length;
+    const W = canvas.width;
+    const H = canvas.height;
+    g.clearRect(0, 0, W, H);
+
+    // retro EQ: bars rising from a shared baseline with a glow line on top
+    const baseY = H - 2;
+    const bw = W / levels.length;
     levels.forEach((v, i) => {
-      const h = v * canvas.height;
+      const h = Math.max(2, v * (H - 6));
+      const x = i * bw;
       g.fillStyle = i % 2 ? '#ff4df3' : '#4df3ff';
-      g.fillRect(i * bw + 1, canvas.height - h, bw - 2, h);
+      g.fillRect(x + 1, baseY - h, bw - 2, h);
+      // bright cap
+      g.fillStyle = i % 2 ? '#ffd6fb' : '#d6fbff';
+      g.fillRect(x + 1, baseY - h, bw - 2, 2);
     });
+
+    // baseline glow
+    g.fillStyle = 'rgba(77, 243, 255, 0.5)';
+    g.fillRect(0, baseY - 1, W, 2);
   }
 }
 
