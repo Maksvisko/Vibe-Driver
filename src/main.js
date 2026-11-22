@@ -40,7 +40,9 @@ const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x07060f);
 scene.fog = new THREE.Fog(0x0b0820, 60, 340);
 
-const camera = new THREE.PerspectiveCamera(68, innerWidth / innerHeight, 0.3, 900);
+// near/far tuned: 0.5 avoids clipping the car/road, 600 matches fog — no cut geometry
+const camera = new THREE.PerspectiveCamera(68, innerWidth / innerHeight, 0.5, 600);
+camera.position.set(0, 6.5, 16); // start above ground (never lerp up from y=0)
 
 // lights — moonlit night
 const hemi = new THREE.HemisphereLight(0x3a3a7a, 0x14101f, 1.15);
@@ -52,24 +54,27 @@ const neonFill = new THREE.DirectionalLight(0xff4df3, 0.35);
 neonFill.position.set(80, 40, 120);
 scene.add(neonFill);
 
-// stars
+// stars — sky layer that follows the camera position (world orientation kept),
+// so they always sit inside camera.far and never pop while driving
+const starField = new THREE.Group();
 {
   const starGeo = new THREE.BufferGeometry();
   const n = 500;
   const arr = new Float32Array(n * 3);
   for (let i = 0; i < n; i++) {
     const a = Math.random() * Math.PI * 2;
-    const r = 500 + Math.random() * 300;
-    const y = 60 + Math.random() * 380;
+    const r = 420 + Math.random() * 130;   // ≤550 → max dist from cam ≈585 < far 600
+    const y = 40 + Math.random() * 160;
     arr[i * 3] = Math.cos(a) * r;
     arr[i * 3 + 1] = y;
     arr[i * 3 + 2] = Math.sin(a) * r;
   }
   starGeo.setAttribute('position', new THREE.BufferAttribute(arr, 3));
   const stars = new THREE.Points(starGeo, new THREE.PointsMaterial({
-    color: 0xcdd8ff, size: 2.4, sizeAttenuation: false,
+    color: 0xcdd8ff, size: 2.4, sizeAttenuation: false, fog: false,
   }));
-  scene.add(stars);
+  starField.add(stars);
+  scene.add(starField);
 }
 
 // world
@@ -161,23 +166,24 @@ function updateCamera(dt, introMode = false) {
     return;
   }
 
-  // chase cam — tight and stiff so drifts never throw it around
+  // chase cam — sits high & far enough to never sink into asphalt/barriers
   const back = 7.5 + speed * 0.07;
-  const height = 3.2 + speed * 0.015;
+  const height = 3.8 + speed * 0.015;
   camPos.set(
     physics.pos.x - fwd.x * back,
     height,
     physics.pos.z - fwd.z * back
   );
-  // look just ahead of the car (short lever → less swing in slides)
+  // aim down at the road ahead of the car (never at the sky/underground)
   camTarget.set(
-    physics.pos.x + fwd.x * 3.5,
-    1.2,
-    physics.pos.z + fwd.z * 3.5
+    physics.pos.x + fwd.x * 5.5,
+    0.8,
+    physics.pos.z + fwd.z * 5.5
   );
 
   const stiff = 1 - Math.exp(-14 * dt); // was 6.5 — much snappier
   camera.position.lerp(camPos, stiff);
+  if (camera.position.y < 1.6) camera.position.y = 1.6; // hard floor: never under the road
   camera.lookAt(camTarget);
 
   // speed FOV kick (gentler)
@@ -366,6 +372,7 @@ function frame(now) {
 
   // camera
   updateCamera(dt, state === 'intro' || (state === 'paused' && !inRadio));
+  starField.position.copy(camera.position); // sky follows cam, world orientation kept
 
   // engine audio
   if (state === 'driving' && !paused) {

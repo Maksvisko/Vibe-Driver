@@ -225,7 +225,8 @@ export class Track {
     for (let i = 20; i < this.N; i += 34) {
       const s = this.samples[i];
       const side = (Math.floor(i / 34) % 2) ? 1 : -1;
-      const p = s.pos.clone().addScaledVector(s.lat, side * (WALL_OFFSET + 1.4));
+      // strictly beyond the barriers: 24 m from the road edge (20–30 m rule)
+      const p = s.pos.clone().addScaledVector(s.lat, side * (ROAD_HALF + 24));
       const pole = new THREE.Mesh(poleGeo, lampPole);
       pole.position.set(p.x, 3, p.z);
       this.scene.add(pole);
@@ -243,18 +244,22 @@ export class Track {
     }));
     const placed = [];
     let tries = 0;
-    while (placed.length < 90 && tries < 900) {
+    while (placed.length < 90 && tries < 2500) {
       tries++;
       const a = Math.random() * Math.PI * 2;
       const r = 40 + Math.random() * 260;
       const x = Math.cos(a) * r;
       const z = Math.sin(a) * r - 85;
-      const near = this.samples.some((s, i) =>
-        i % 4 === 0 && s.pos.distanceToSquared({ x, y: 0, z }) < 26 * 26);
-      if (near) continue;
-      placed.push([x, z]);
       const w = 8 + Math.random() * 16;
       const d = 8 + Math.random() * 16;
+      // whole footprint ≥ 20 m clear of the road edge: centerline distance
+      // must exceed ROAD_HALF + 20 + half-diagonal of the building
+      const clear = ROAD_HALF + 20 + Math.hypot(w, d) / 2;
+      const clear2 = clear * clear;
+      const near = this.samples.some((s) =>
+        (x - s.pos.x) * (x - s.pos.x) + (z - s.pos.z) * (z - s.pos.z) < clear2);
+      if (near) continue;
+      placed.push([x, z]);
       const h = 12 + Math.random() * 46;
       const b = new THREE.Mesh(boxGeo, buildingMat);
       b.scale.set(w, h, d);
