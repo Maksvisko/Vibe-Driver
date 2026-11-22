@@ -149,9 +149,26 @@ const camPos = new THREE.Vector3();
 const camTarget = new THREE.Vector3();
 const tmpFwd = new THREE.Vector3();
 
+// music-reactive camera state
+let shakeX = 0;
+let shakeY = 0;
+
 function updateCamera(dt, introMode = false) {
   const fwd = physics.forwardVec(tmpFwd);
   const speed = Math.max(0, physics.speed); // reverse shouldn't shrink distance
+  const bass = music.bass();               // 0..1 — for camera shake
+  const level = music.level();             // 0..1 — for FOV breathing
+
+  // camera shake: strong low frequencies jolt the rig (decays each frame)
+  if (bass > 0.55) {
+    const amp = (bass - 0.55) * 2.6; // 0..~2.6
+    const t = performance.now() * 0.0011;
+    shakeX = Math.sin(t * 3.7) * amp;
+    shakeY = Math.cos(t * 2.9) * amp * 0.7;
+  } else {
+    shakeX *= Math.exp(-6 * dt); // smooth decay back to 0
+    shakeY *= Math.exp(-6 * dt);
+  }
 
   if (introMode) {
     // slow orbit around car
@@ -162,6 +179,8 @@ function updateCamera(dt, introMode = false) {
       physics.pos.z + Math.sin(t) * 14
     );
     camera.position.lerp(camPos, 1 - Math.exp(-4 * dt));
+    camera.position.x += shakeX * 0.5;
+    camera.position.y += shakeY * 0.5;
     camera.lookAt(physics.pos.x, 1.2, physics.pos.z);
     return;
   }
@@ -184,10 +203,13 @@ function updateCamera(dt, introMode = false) {
   const stiff = 1 - Math.exp(-14 * dt); // was 6.5 — much snappier
   camera.position.lerp(camPos, stiff);
   if (camera.position.y < 1.6) camera.position.y = 1.6; // hard floor: never under the road
+  // apply music shake offset (applied AFTER the floor clamp so it can't sink below it)
+  camera.position.x += shakeX * 0.6;
+  camera.position.y = Math.max(camera.position.y, 1.6) + shakeY * 0.4;
   camera.lookAt(camTarget);
 
-  // speed FOV kick (gentler)
-  const targetFov = 66 + Math.min(14, speed * 0.3);
+  // speed FOV kick (gentler) + music "breathing" pulse at high loudness
+  const targetFov = 66 + Math.min(14, speed * 0.3) + Math.min(6, level * 8);
   camera.fov += (targetFov - camera.fov) * (1 - Math.exp(-4 * dt));
   camera.updateProjectionMatrix();
 }
@@ -370,6 +392,9 @@ function frame(now) {
     car.glow.material.opacity = 0.3 + lvl * 0.5;
   }
 
+  // neon world reacts to bass: barriers/lamps pulse, buildings glow softer
+  track.pulse(music.bass(), dt);
+
   // camera
   updateCamera(dt, state === 'intro' || (state === 'paused' && !inRadio));
   starField.position.copy(camera.position); // sky follows cam, world orientation kept
@@ -387,6 +412,83 @@ function frame(now) {
   // render
   ps1.render(scene, camera);
   keys.endFrame();
+}
+
+// ---------------- drag & drop music ----------------
+const dropOverlay = document.getElementById('drop-overlay');
+let dropActive = false;
+
+function isAudioFile(file) {
+  if (!file) return false;
+  if (file.type && file.type.startsWith('audio/')) return true;
+  return /\.(mp3|ogg|oga|wav|m4a|flac|aac|opus)$/i.test(file.name || '');
+}
+
+function handleDroppedFiles(files) {
+  let added = 0;
+  let firstIndex = -1;
+  for (const file of files) {
+    if (!isAudioFile(file)) continue;
+    const idx = music.addCustomTrack(file);
+    if (firstIndex < 0) firstIndex = idx;
+    added++;
+  }
+  if (!added) {
+    toast('Не audio-файл — нужен mp3/ogg/wav/m4a', 2600);
+    return;
+  }
+  // drop is a user gesture — unlock audio, then dynamic radio rebuild
+  // + play the first dropped track instantly
+  music.unlock();
+  wheel.build();
+  radioOpen = true;
+  wheel.show();
+  music.play(firstIndex);
+  updateHudTrack();
+  toast(`♪ Добавлено: ${music.tracks[firstIndex].title} — играет`, 4200);
+}
+
+function setupDragDrop() {
+  // only react to file drags (ignore text/element drags inside the UI)
+  const fileDrag = (e) =>
+    Array.isArray(e.dataTransfer?.types) && e.dataTransfer.types.includes('Files');
+
+  window.addEventListener('dragenter', (e) => {
+    if (!fileDrag(e)) return;
+    e.preventDefault();
+    if (!dropActive) {
+      dropActive = true;
+      dropOverlay.classList.remove('hidden');
+    }
+  });
+
+  window.addEventListener('dragover', (e) => {
+    if (!fileDrag(e)) return;
+    e.preventDefault(); // allow drop
+    e.dataTransfer.dropEffect = 'copy';
+  });
+
+  window.addEventListener('dragleave', (e) => {
+    if (!fileDrag(e)) return;
+    // only hide when leaving the window entirely
+    if (e.relatedTarget === null || !document.contains(e.relatedTarget)) {
+      if (dropActive) {
+        dropActive = false;
+        dropOverlay.classList.add('hidden');
+      }
+    }
+  });
+
+  window.addEventListener('drop', (e) => {
+    if (!fileDrag(e)) return;
+    e.preventDefault();
+    if (dropActive) {
+      dropActive = false;
+      dropOverlay.classList.add('hidden');
+    }
+    const files = e.dataTransfer?.files;
+    if (files && files.length) handleDroppedFiles(files);
+  });
 }
 
 // ---------------- init ----------------
@@ -411,6 +513,9 @@ function frame(now) {
   });
   dom.intro.addEventListener('click', () => startGame());
 
+  // drag & drop of music files onto the whole window
+  setupDragDrop();
+
   // First gesture ANYWHERE on the page unlocks audio contexts (browser autoplay policy)
   const unlockOnce = () => {
     try { music.unlock(); } catch { /* ok */ }
@@ -421,8 +526,8 @@ function frame(now) {
   window.addEventListener('pointerdown', unlockOnce);
   window.addEventListener('keydown', unlockOnce);
 
-  if (music.tracks.length === 0) {
-    toast('📻 Свои треки: public/music/ → npm run scan-music. Пока играет встроенный synthwave', 6000);
+  if (music.usedFallback) {
+    toast('📻 Включен built-in Synthwave-плейлист — свои треки: public/music/ или перетащи в окно', 6000);
   }
 
   // expose for debugging

@@ -161,6 +161,7 @@ export class Track {
     }));
     // emissive tint via vertex colors won't glow alone — bump with emissive map? keep simple:
     mat.emissive = new THREE.Color(0x888888);
+    this.barrierMat = mat; // reactive to music bass (see pulse())
     this.scene.add(new THREE.Mesh(geo, mat));
   }
 
@@ -221,6 +222,7 @@ export class Track {
     const lampHead = this.patch(new THREE.MeshBasicMaterial({ color: 0x9df8ff }));
     const poleGeo = new THREE.BoxGeometry(0.3, 6, 0.3);
     const headGeo = new THREE.BoxGeometry(1.6, 0.5, 0.7);
+    this.lampMats = [lampHead]; // reactive to music bass (see pulse())
 
     for (let i = 20; i < this.N; i += 34) {
       const s = this.samples[i];
@@ -242,6 +244,7 @@ export class Track {
     const buildingMat = this.patch(new THREE.MeshLambertMaterial({
       color: 0x12102a, emissive: 0xffffff, emissiveMap: winTex, emissiveIntensity: 0.9,
     }));
+    this.buildingMat = buildingMat; // subtle bass reactive glow
     const placed = [];
     let tries = 0;
     while (placed.length < 90 && tries < 2500) {
@@ -398,5 +401,45 @@ export class Track {
     const m = this._map;
     if (!m) return null;
     return { x: m.ox + (x - m.minX) * m.sc, y: m.oy + (z - m.minZ) * m.sc };
+  }
+
+  // ---------- music-reactive world ----------
+
+  /**
+   * Called every frame: makes neon barriers + street lamps pulse with the
+   * bass. On a beat hit the emissiveIntensity spikes, then decays smoothly
+   * toward the base value via lerp. No-op when no bass data is available.
+   *
+   * @param {number} bass 0..1 low-frequency level from MusicPlayer.bass()
+   * @param {number} dt   frame delta in seconds
+   */
+  pulse(bass, dt) {
+    const k = Math.min(1, dt * 6.5); // smoothing factor (frame-rate safe lerp)
+
+    // barriers: sharp attack, slow release — target follows bass with a floor
+    if (this.barrierMat) {
+      const target = 0.45 + bass * 2.2;
+      this.barrierMat.emissiveIntensity +=
+        (target - this.barrierMat.emissiveIntensity) * k;
+    }
+
+    // lamp heads (MeshBasicMaterial → scale color brightness instead of emissive)
+    if (this.lampMats) {
+      const target = THREE.MathUtils.clamp(0.5 + bass * 2.0, 0.5, 1.6);
+      for (const m of this.lampMats) {
+        m.color.setRGB(
+          THREE.MathUtils.clamp(0.61 + target * 0.39, 0, 1), // R
+          THREE.MathUtils.clamp(0.97 - target * 0.07, 0, 1), // G
+          1.0                                                // B
+        );
+      }
+    }
+
+    // buildings: very subtle extra glow on strong beats
+    if (this.buildingMat) {
+      const target = 0.85 + bass * 0.7;
+      this.buildingMat.emissiveIntensity +=
+        (target - this.buildingMat.emissiveIntensity) * k * 0.6;
+    }
   }
 }

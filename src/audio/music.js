@@ -1,11 +1,36 @@
 /**
  * Music engine:
  *  - user playlist from ./music/playlist.json (npm run scan-music)
- *  - if missing/empty → built-in Synthwave loop plays out of the box
- *  - HTMLAudio + WebAudio analyser for spectrum HUD
+ *  - if missing/empty → built-in Synthwave FALLBACK playlist (3 tracks)
+ *  - built-in SynthLoop as last-resort audio if nothing else plays
+ *  - drag & drop: addCustomTrack(file) → ObjectURL → radio list
+ *  - HTMLAudio + WebAudio analyser (FFT 256) for spectrum/bass/level
  * Never throws: all failures degrade gracefully.
  */
 import { SynthLoop } from './synth.js';
+
+/**
+ * Fallback Synthwave playlist — direct MP3 links from open GitHub repos
+ * (raw.githubusercontent.com serves them with Access-Control-Allow-Origin: *,
+ * so they work as cross-origin audio for the WebAudio analyser).
+ */
+const FALLBACK_TRACKS = [
+  {
+    title: 'Dark Places',
+    artist: 'Synthwave OST',
+    url: 'https://raw.githubusercontent.com/CristianQiu/Unity-AudioSpectrum-Synthwave/main/Assets/Sounds/Dark%20Places%20Synthwave.mp3',
+  },
+  {
+    title: 'AutoTron',
+    artist: 'Synthwave Vibes',
+    url: 'https://raw.githubusercontent.com/iondrimba/threejs-audio-visualizer-four/master/src/sound/autotron.mp3',
+  },
+  {
+    title: 'SYNTHesized',
+    artist: 'Code Synthwave',
+    url: 'https://raw.githubusercontent.com/nikolaStanojkovski/SYNTHesized/master/Arrangement/SYNTHesized%20Mix%26Master%20Ableton.mp3',
+  },
+];
 
 export class MusicPlayer {
   constructor() {
@@ -14,6 +39,7 @@ export class MusicPlayer {
     this.playing = false;
     this.ready = false;
     this.usingSynth = false;
+    this.usedFallback = false;
 
     this.audio = new Audio();
     this.audio.crossOrigin = 'anonymous';
@@ -32,7 +58,7 @@ export class MusicPlayer {
     });
   }
 
-  /** Load playlist; NEVER rejects. */
+  /** Load playlist; NEVER rejects. If empty → built-in Synthwave fallback list. */
   async load() {
     this.tracks = [];
     try {
@@ -49,11 +75,37 @@ export class MusicPlayer {
           }));
       }
     } catch (e) {
-      console.info('Playlist unavailable, synth fallback will be used.', e?.message || e);
+      console.info('Playlist unavailable, falling back to built-in Synthwave list.', e?.message || e);
       this.tracks = [];
+    }
+    if (!this.tracks.length) {
+      this.tracks = FALLBACK_TRACKS.map((t) => ({ ...t }));
+      this.usedFallback = true;
+      console.info('Empty playlist — using built-in Synthwave fallback playlist.');
     }
     this.ready = true;
     return this.tracks;
+  }
+
+  /**
+   * Add a local music file (from drag & drop) to the radio list.
+   * Creates an ObjectURL so it plays without any server/CORS.
+   * @returns {number} index of the new track
+   */
+  addCustomTrack(file) {
+    const url = URL.createObjectURL(file);
+    const name = (file.name || 'track').replace(/\.[^./\\]+$/, '');
+    this.tracks.push({
+      title: name || 'Трек',
+      artist: 'LOCAL',
+      url,
+    });
+    this.ready = true;
+    if (this.index < 0 && !this.playing && !this.usingSynth) {
+      // nothing playing yet — select the freshly dropped track
+      this.index = this.tracks.length - 1;
+    }
+    return this.tracks.length - 1;
   }
 
   _ensureCtx() {
@@ -62,7 +114,7 @@ export class MusicPlayer {
       this.ctx = new (window.AudioContext || window.webkitAudioContext)();
       const src = this.ctx.createMediaElementSource(this.audio);
       this.analyser = this.ctx.createAnalyser();
-      this.analyser.fftSize = 128;
+      this.analyser.fftSize = 256;
       this.analyser.smoothingTimeConstant = 0.75;
       this.freqData = new Uint8Array(this.analyser.frequencyBinCount);
       src.connect(this.analyser);
@@ -93,7 +145,9 @@ export class MusicPlayer {
     const sameTrack = this.index === index;
     this.index = index;
     try {
-      if (!sameTrack || !this.audio.src.endsWith(encodeURI(t.url))) {
+      // reload when switching track or when src was reset (blob URLs /
+      // percent-encoded URLs can't be reliably compared via endsWith)
+      if (!sameTrack || this.audio.src !== t.url) {
         this.audio.src = t.url;
       }
       await this.audio.play();
@@ -222,5 +276,40 @@ export class MusicPlayer {
       out.push(Math.max(0.04, n ? sum / n / 255 : 0.04));
     }
     return out;
+  }
+
+  _grabFreq() {
+    if (!this.analyser || !this.playing) return false;
+    try {
+      this.analyser.getByteFrequencyData(this.freqData);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Bass level 0..1 — average of the lowest frequency bins.
+   * Drives neon emissive pulse + camera shake.
+   */
+  bass() {
+    if (!this._grabFreq()) return 0;
+    // fftSize 256 → 128 bins; bass ≈ first ~8 bins (< 400 Hz at 44.1 kHz)
+    const bins = Math.min(8, this.freqData.length);
+    let sum = 0;
+    for (let i = 0; i < bins; i++) sum += this.freqData[i];
+    return sum / (bins * 255);
+  }
+
+  /**
+   * Overall loudness 0..1 — RMS across all bins.
+   * Drives the "breathing" FOV pulse.
+   */
+  level() {
+    if (!this._grabFreq()) return 0;
+    let sum = 0;
+    for (let i = 0; i < this.freqData.length; i++) sum += this.freqData[i] * this.freqData[i];
+    const mean = sum / this.freqData.length;
+    return Math.min(1, Math.sqrt(mean) / 128);
   }
 }
