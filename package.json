@@ -8,7 +8,8 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "scan-music": "node scripts/scan-music.mjs"
+    "scan-music": "node scripts/scan-music.mjs",
+    "test:physics": "node scripts/test-physics.mjs"
   },
   "dependencies": {
     "@fontsource/press-start-2p": "^5.1.0",
