@@ -26,6 +26,7 @@ const POST_FRAG = /* glsl */ `
   uniform sampler2D tDiffuse;
   uniform float uLevels;
   uniform float uDither;
+  uniform vec2 uRes;
   varying vec2 vUv;
 
   void main() {
@@ -44,7 +45,9 @@ const POST_FRAG = /* glsl */ `
     col += d;
     col = floor(col * uLevels + 0.5) / uLevels;
 
+    // aspect-correct vignette (resolution-aware via uRes)
     vec2 q = vUv - 0.5;
+    q.x *= uRes.x / max(uRes.y, 1.0);
     float vig = 1.0 - dot(q, q) * 0.55;
     col *= vig;
 
@@ -114,6 +117,7 @@ export class PS1Renderer {
           tDiffuse: { value: this.target.texture },
           uLevels: { value: 32.0 },
           uDither: { value: 0.035 },
+          uRes: { value: new THREE.Vector2(1, 1) },
         },
         vertexShader: POST_VERT,
         fragmentShader: POST_FRAG,
@@ -132,11 +136,17 @@ export class PS1Renderer {
     }
   }
 
-  _resize() {
+  /**
+   * Handle a viewport change (window resize / fullscreen).
+   * Updates the canvas, the low-res render target (height ~260px,
+   * width proportional to the aspect) and the post-shader resolution
+   * uniform. Safe to call with the current size — it just re-applies.
+   */
+  resize(w, h) {
     if (!this.renderer) return;
     try {
-      const w = window.innerWidth;
-      const h = window.innerHeight;
+      w = Math.max(1, Math.floor(w || window.innerWidth));
+      h = Math.max(1, Math.floor(h || window.innerHeight));
       this.renderer.setSize(w, h, false);
 
       if (this.target && this.postMat) {
@@ -144,10 +154,16 @@ export class PS1Renderer {
         const ph = this.pixelHeight;
         const pw = Math.max(160, Math.round(ph * aspect / 2) * 2);
         this.target.setSize(pw, ph);
+        // keep the dither/vignette shader aware of the real resolution
+        this.postMat.uniforms.uRes.value.set(w, h);
       }
     } catch (e) {
       console.warn('resize failed', e);
     }
+  }
+
+  _resize() {
+    this.resize(window.innerWidth, window.innerHeight);
   }
 
   /**

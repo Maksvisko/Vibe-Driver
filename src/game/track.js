@@ -43,6 +43,10 @@ export class Track {
     this.halfWidth = ROAD_HALF;
     this.wallLimit = WALL_OFFSET;
     this._lastIdx = 0;
+
+    // reused query/minimap result objects — never allocate in the hot loop
+    this._qOut = { index: 0, offset: 0, sample: null, dist: 0 };
+    this._pOut = { x: 0, y: 0 };
   }
 
   _roadTexture() {
@@ -168,22 +172,26 @@ export class Track {
   _buildStartGate() {
     const s = this.samples[0];
     const group = new THREE.Group();
-    const gateMat = this.patch(new THREE.MeshLambertMaterial({ color: 0x141227 }));
-    const glowMat = this.patch(new THREE.MeshBasicMaterial({ color: 0xffe94d }));
+    const gateMat = this.patch(new THREE.MeshLambertMaterial({ color: 0x141227, side: THREE.DoubleSide }));
+    const glowMat = this.patch(new THREE.MeshBasicMaterial({ color: 0xffe94d, side: THREE.DoubleSide }));
 
-    const pillarGeo = new THREE.BoxGeometry(1.2, 9, 1.2);
+    // START banner: a clean, simple rectangle spanning the road width,
+    // carried on two pillars above the finish line at 4.5 m height
+    const trackWidth = ROAD_HALF * 2;
+    const BANNER_Y = 4.5;
+    const pillarGeo = new THREE.BoxGeometry(1.2, BANNER_Y + 0.9, 1.2);
     for (const side of [-1, 1]) {
       const p = new THREE.Mesh(pillarGeo, gateMat);
       const offset = s.pos.clone().addScaledVector(s.lat, side * (WALL_OFFSET + 0.6));
-      p.position.set(offset.x, 4.5, offset.z);
+      p.position.set(offset.x, (BANNER_Y + 0.9) / 2, offset.z);
       group.add(p);
       const cap = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.8, 1.6), glowMat);
-      cap.position.set(offset.x, 9.4, offset.z);
+      cap.position.set(offset.x, BANNER_Y + 1.3, offset.z);
       group.add(cap);
     }
-    // banner
-    const banner = new THREE.Mesh(new THREE.BoxGeometry(WALL_OFFSET * 2 + 2, 1.8, 0.5), glowMat);
-    banner.position.set(s.pos.x, 8.2, s.pos.z);
+    // banner — simple rectangle (no deformed stretched geometry)
+    const banner = new THREE.Mesh(new THREE.BoxGeometry(trackWidth, 1.2, 0.2), glowMat);
+    banner.position.set(s.pos.x, BANNER_Y, s.pos.z);
     banner.rotation.y = Math.atan2(s.tan.x, s.tan.z);
     group.add(banner);
 
@@ -326,7 +334,10 @@ export class Track {
 
   /**
    * Nearest centerline sample with local search around lastIndex.
-   * @returns {{index:number, offset:number, sample:object}}
+   * Writes into a REUSED result object (this._qOut) — no per-frame
+   * allocations in the physics hot loop. Fields must be consumed
+   * immediately (they are overwritten on the next call).
+   * @returns {{index:number, offset:number, sample:object, dist:number}}
    */
   query(x, z, lastIndex = 0, windowSize = 60) {
     const N = this.N;
@@ -354,8 +365,12 @@ export class Track {
     const s = this.samples[best];
     const dx = x - s.pos.x;
     const dz = z - s.pos.z;
-    const offset = dx * s.lat.x + dz * s.lat.z; // + = right of centerline
-    return { index: best, offset, sample: s, dist: Math.sqrt(bestD) };
+    const out = this._qOut;
+    out.index = best;
+    out.offset = dx * s.lat.x + dz * s.lat.z; // + = right of centerline
+    out.sample = s;
+    out.dist = Math.sqrt(bestD);
+    return out;
   }
 
   /** progress0..1 for minimap / anti-cheat */
@@ -400,7 +415,10 @@ export class Track {
   mapPoint(x, z) {
     const m = this._map;
     if (!m) return null;
-    return { x: m.ox + (x - m.minX) * m.sc, y: m.oy + (z - m.minZ) * m.sc };
+    const out = this._pOut;
+    out.x = m.ox + (x - m.minX) * m.sc;
+    out.y = m.oy + (z - m.minZ) * m.sc;
+    return out;
   }
 
   // ---------- music-reactive world ----------
