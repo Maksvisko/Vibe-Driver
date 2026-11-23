@@ -153,37 +153,18 @@ const camTarget = new THREE.Vector3();
 const tmpFwd = new THREE.Vector3();
 const tmpLocal = new THREE.Vector3();
 
-// music-reactive camera state
-let shakeX = 0;
-let shakeY = 0;
-
 // first-person state
 let cameraMode = CAM_CHASE;
-let leanRoll = 0;         // smoothed cockpit lean (roll opposite to turn)
 
-// chase-cam smoothing state (eased speed → distance/height, FPS-safe)
-let smoothedSpeed = 0;
-const MAX_SPEED = 50; // m/s — matches CarPhysics cap (180 km/h)
+// chase-cam smoothing state (smooth look yaw — no fishtail)
+let smoothedAngle = 0;
 
 function updateCamera(dt, introMode = false) {
   const fwd = physics.forwardVec(tmpFwd);
-  const speed = Math.max(0, physics.speed); // reverse shouldn't shrink distance
-  const bass = music.bass();               // 0..1 — for camera shake
-  const level = music.level();             // 0..1 — for FOV breathing
-
-  // camera shake: strong low frequencies jolt the rig (decays each frame)
-  if (bass > 0.55) {
-    const amp = (bass - 0.55) * 2.6; // 0..~2.6
-    const t = performance.now() * 0.0011;
-    shakeX = Math.sin(t * 3.7) * amp;
-    shakeY = Math.cos(t * 2.9) * amp * 0.7;
-  } else {
-    shakeX *= Math.exp(-6 * dt); // smooth decay back to 0
-    shakeY *= Math.exp(-6 * dt);
-  }
+  const speed = Math.max(0, physics.speed);
 
   if (introMode) {
-    // slow orbit around car
+    // slow orbit around car — steady, no music shake
     const t = performance.now() * 0.00022;
     camPos.set(
       physics.pos.x + Math.cos(t) * 14,
@@ -191,8 +172,6 @@ function updateCamera(dt, introMode = false) {
       physics.pos.z + Math.sin(t) * 14
     );
     camera.position.lerp(camPos, 1 - Math.exp(-4 * dt));
-    camera.position.x += shakeX * 0.5;
-    camera.position.y += shakeY * 0.5;
     camera.lookAt(physics.pos.x, 1.2, physics.pos.z);
     return;
   }
@@ -213,11 +192,9 @@ function updateCamera(dt, introMode = false) {
     car.group.localToWorld(tmpLocal);
     camera.lookAt(tmpLocal);
 
-    // lean: roll opposite to lateral acceleration (G-force effect) —
-    // rotation only, the position stays bolted to the car
-    const leanTarget = THREE.MathUtils.clamp(-physics.accelLat * 0.02, -0.06, 0.06);
-    leanRoll += (leanTarget - leanRoll) * Math.min(1, dt * 5);
-    camera.rotation.z += leanRoll;
+    // FIXED roll: the cabin is monolithic — no leaning/tilting sideways
+    // on turns, only the world outside turns
+    camera.rotation.z = 0;
 
     // FIXED field of view in the cockpit — no speed kick, no music pulse
     // (those stay in CHASE_VIEW only, so the cabin screen never squeezes)
@@ -226,36 +203,35 @@ function updateCamera(dt, introMode = false) {
     return;
   }
 
-  // chase cam — distance & height driven ONLY by smoothed speed (no jitter
-  // from instantaneous speed): smoothedSpeed eases toward the current speed,
-  // distance = 7.2 + norm*1.3, height = 3.2 + norm*0.4
-  smoothedSpeed = THREE.MathUtils.lerp(smoothedSpeed, speed, dt * 2.0);
-  const speedNorm = THREE.MathUtils.clamp(smoothedSpeed / MAX_SPEED, 0, 1);
-  const distance = 7.2 + speedNorm * 1.3;
-  const height = 3.2 + speedNorm * 0.4;
-
+  // chase cam — strictly attached to the car's direction of travel:
+  // the camera sits EXACTLY back 7.2 m / up 3.2 m along the car's forward
+  // vector. No distance/height scaling with speed, no shake offsets —
+  // the camera turns smoothly and synchronously behind the tail, no fishtail.
+  // Position: stiff lerp toward the ideal spot (no jitter, no lag in turn-in).
   camPos.set(
-    physics.pos.x - fwd.x * distance,
-    height,
-    physics.pos.z - fwd.z * distance
+    physics.pos.x - fwd.x * 7.2,
+    physics.pos.y + 3.2,
+    physics.pos.z - fwd.z * 7.2
   );
-  // aim down at the road ahead of the car (never at the sky/underground)
+  const stiff = 1 - Math.exp(-24 * dt); // very stiff: near-instant, no overshoot
+  camera.position.lerp(camPos, stiff);
+
+  // look angle: damp the yaw toward "forward down the road" — smooth,
+  // never swinging left/right independently of the car (no fishtail)
   camTarget.set(
     physics.pos.x + fwd.x * 5.5,
     0.8,
     physics.pos.z + fwd.z * 5.5
   );
+  const targetYaw = Math.atan2(camTarget.x - camera.position.x, camTarget.z - camera.position.z);
+  smoothedAngle = THREE.MathUtils.dampAngle(smoothedAngle, targetYaw, 12, dt);
+  camera.rotation.y = smoothedAngle;
+  camera.rotation.x = 0; // no leftover pitch from the cockpit lookAt
+  camera.rotation.z = 0; // no roll, ever
+  camera.position.y = Math.max(camera.position.y, 1.6); // hard floor: never under the road
 
-  const stiff = 1 - Math.exp(-8 * dt); // calm, no springy overshoot
-  camera.position.lerp(camPos, stiff);
-  if (camera.position.y < 1.6) camera.position.y = 1.6; // hard floor: never under the road
-  // apply music shake offset (applied AFTER the floor clamp so it can't sink below it)
-  camera.position.x += shakeX * 0.6;
-  camera.position.y = Math.max(camera.position.y, 1.6) + shakeY * 0.4;
-  camera.lookAt(camTarget);
-
-  // speed FOV kick (gentler) + music "breathing" pulse at high loudness
-  const targetFov = 66 + Math.min(14, speed * 0.3) + Math.min(6, level * 8);
+  // speed FOV kick (gentler) — no music "breathing" pulse on the camera
+  const targetFov = 66 + Math.min(14, speed * 0.3);
   camera.fov += (targetFov - camera.fov) * (1 - Math.exp(-4 * dt));
   camera.updateProjectionMatrix();
 }
@@ -423,10 +399,11 @@ function frame(now) {
   car.group.position.set(physics.pos.x, 0, physics.pos.z);
   car.group.rotation.y = physics.heading;
 
-  // body roll & pitch from lateral/long accel (visual only)
-  const roll = THREE.MathUtils.clamp(-physics.accelLat * 0.012, -0.09, 0.09);
+  // body pitch from longitudinal accel (visual only). NO body roll: the
+  // car screws into turns cleanly — no rubbery sideways banking (the
+  // physics model itself never tilts the body; the visual roll is zeroed).
   const pitch = THREE.MathUtils.clamp(physics.accelLong * 0.008, -0.07, 0.07);
-  car.group.rotation.z += (roll - car.group.rotation.z) * Math.min(1, dt * 8);
+  car.group.rotation.z = 0; // locked: no roll, monolithic chassis
   car.group.rotation.x += (pitch - car.group.rotation.x) * Math.min(1, dt * 8);
 
   // suspension bounce when wall hit
@@ -457,6 +434,23 @@ function frame(now) {
         THREE.MathUtils.clamp(base.b * boost, 0, 1)
       );
     });
+  }
+
+  // spinning neon vinyl on the console: rotates while music plays,
+  // neon center pulses with the bass (inside cockpit — visible in
+  // first-person view only)
+  if (car.vinylGroup && car.cockpit.visible && music.playing) {
+    car.vinylGroup.rotation.z += dt * 1.8;
+    const b = music.bass();
+    const neon = car.vinylGroup.userData.neon;
+    if (neon) {
+      const pulse = 0.55 + b * 1.15;
+      neon.material.color.setRGB(
+        THREE.MathUtils.clamp(0.3 * pulse, 0, 1),
+        THREE.MathUtils.clamp(0.95 * pulse, 0, 1),
+        THREE.MathUtils.clamp(1.0 * pulse, 0, 1)
+      );
+    }
   }
 
   // underglow pulse with music
