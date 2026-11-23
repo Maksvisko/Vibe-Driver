@@ -29,6 +29,8 @@ const HANDBRAKE_DECEL = 16;        // m/s²
 const MAX_STEER = 0.55;            // rad, wheel visual angle
 const TURN_RATE = 1.9;             // rad/s at full lock, low speed
 const STEER_SMOOTH = 10;           // 1/s input responsiveness
+const ANGULAR_DAMPING = 6.0;       // 1/s yaw-rate damping — rail-stable on
+                                    // straights, kills parasitic yaw wiggle
 const MIN_SPEED_FOR_STEER = 4;     // m/s — no turning when nearly stopped
 const TURN_TAPER = 0.35;           // turn-rate reduction at top speed
 
@@ -67,6 +69,7 @@ export class CarPhysics {
     this.speed = 0;                    // signed scalar (m/s), + = forward
     this.steer = 0;                    // current wheel angle (rad), + = right
     this.yawRate = 0;                  // rad/s (derived, bounded)
+    this.yawVel = 0;                   // rad/s damped yaw velocity (smoothed)
     this.onRoad = true;
     this.reversing = false;
     this.slipAmount = 0;               // 0..1 drift intensity (fx/audio)
@@ -98,6 +101,7 @@ export class CarPhysics {
     this.speed = 0;
     this.steer = 0;
     this.yawRate = 0;
+    this.yawVel = 0;
     this.onRoad = true;
     this.reversing = false;
     this.slipAmount = 0;
@@ -189,9 +193,13 @@ export class CarPhysics {
 
     // +steer (D/right) must DECREASE heading: forward=(sin h,cos h);
     // car's right side is -X when facing +Z, so h↓ turns right.
-    this.heading -= turn * dt;
+    // angular damping: yaw velocity eases toward the target turn rate with
+    // ANGULAR_DAMPING — the car tracks rail-straight on straights and never
+    // wiggles left/right from tiny input noise (no toy-car sway)
+    this.yawVel += (-turn - this.yawVel) * Math.min(1, ANGULAR_DAMPING * dt);
+    this.heading += this.yawVel * dt;
     this.heading = Math.atan2(Math.sin(this.heading), Math.cos(this.heading));
-    this.yawRate = -turn; // bounded: |yawRate| ≤ TURN_RATE * 1.25
+    this.yawRate = this.yawVel; // bounded: |yawRate| ≤ TURN_RATE * 1.25
 
     // ---------- grip: velocity smoothly follows heading ----------
     const fwdX = Math.sin(this.heading);

@@ -161,9 +161,9 @@ let shakeY = 0;
 let cameraMode = CAM_CHASE;
 let leanRoll = 0;         // smoothed cockpit lean (roll opposite to turn)
 
-// chase-cam smoothing state (eased distance & height, FPS-safe)
-let chaseDist = 7.0;
-let chaseHeight = 3.2;
+// chase-cam smoothing state (eased speed → distance/height, FPS-safe)
+let smoothedSpeed = 0;
+const MAX_SPEED = 50; // m/s — matches CarPhysics cap (180 km/h)
 
 function updateCamera(dt, introMode = false) {
   const fwd = physics.forwardVec(tmpFwd);
@@ -198,40 +198,26 @@ function updateCamera(dt, introMode = false) {
   }
 
   if (cameraMode === CAM_COCKPIT) {
-    // ---- first-person: camera at the driver's eye level ----
-    // anchor: driver-left seat, eye height (x:-0.25, y:1.2, z:0.1),
-    // follows the car heading via the car group transform
+    // ---- first-person: HARD-ATTACHED to the car, zero position smoothing ----
+    // eye anchor: driver-left seat, eye level (x:-0.28, y:1.18, z:0.15) —
+    // world position is copied instantly every frame, the camera never lags
+    // or drifts back under acceleration
     car.group.updateMatrixWorld(true);
-    tmpLocal.set(-0.25, 1.2, 0.1);
+    tmpLocal.set(-0.28, 1.18, 0.15);
     car.group.localToWorld(tmpLocal);
-    camPos.copy(tmpLocal);
+    camera.position.copy(tmpLocal);
 
-    // look strictly forward through the windshield at horizon height —
-    // the lower screen keeps only the dash/hood edge, not body geometry
-    tmpLocal.set(-0.25, 1.2, 10);
+    // look strictly forward, parallel to the hood (local +Z = forward)
+    // through the windshield — a point far ahead at eye height
+    tmpLocal.set(-0.28, 1.18, 20);
     car.group.localToWorld(tmpLocal);
-    camTarget.copy(tmpLocal);
+    camera.lookAt(tmpLocal);
 
-    // smooth lerp into the cockpit (no jump when toggling)
-    const stiff = 1 - Math.exp(-10 * dt);
-    camera.position.lerp(camPos, stiff);
-
-    // lean: roll opposite to lateral acceleration (G-force effect)
+    // lean: roll opposite to lateral acceleration (G-force effect) —
+    // rotation only, the position stays bolted to the car
     const leanTarget = THREE.MathUtils.clamp(-physics.accelLat * 0.02, -0.06, 0.06);
     leanRoll += (leanTarget - leanRoll) * Math.min(1, dt * 5);
-
-    // high-speed high-frequency vibration — feels the speed/engine
-    const vibAmp = THREE.MathUtils.clamp(speed / 33, 0, 0.05);
-    const vt = performance.now() * 0.0013;
-    const vibX = Math.sin(vt * 41) * vibAmp;
-    const vibZ = Math.cos(vt * 37) * vibAmp * 0.8;
-    const vibY = Math.sin(vt * 53) * vibAmp * 0.5;
-    camera.position.x += vibX;
-    camera.position.y += vibY;
-    camera.position.z += vibZ;
-
-    camera.lookAt(camTarget);
-    camera.rotation.z += leanRoll; // roll after lookAt
+    camera.rotation.z += leanRoll;
 
     // FIXED field of view in the cockpit — no speed kick, no music pulse
     // (those stay in CHASE_VIEW only, so the cabin screen never squeezes)
@@ -240,19 +226,18 @@ function updateCamera(dt, introMode = false) {
     return;
   }
 
-  // chase cam — smooth, speed-scaled distance & height (no fishtail):
-  // dist 7.0 → 8.5, height 3.2 → 3.6, each lerped with its own FPS-safe
-  // rate so the camera eases out on acceleration and eases back on braking
-  const speedNorm = THREE.MathUtils.clamp(speed / 33, 0, 1); // 0..1 of top speed
-  const targetBack = 7.0 + speedNorm * 1.5; // 7.0 → 8.5
-  const targetHeight = 3.2 + speedNorm * 0.4; // 3.2 → 3.6
-  chaseDist += (targetBack - chaseDist) * (1 - Math.exp(-2.2 * dt));
-  chaseHeight += (targetHeight - chaseHeight) * (1 - Math.exp(-2.2 * dt));
+  // chase cam — distance & height driven ONLY by smoothed speed (no jitter
+  // from instantaneous speed): smoothedSpeed eases toward the current speed,
+  // distance = 7.2 + norm*1.3, height = 3.2 + norm*0.4
+  smoothedSpeed = THREE.MathUtils.lerp(smoothedSpeed, speed, dt * 2.0);
+  const speedNorm = THREE.MathUtils.clamp(smoothedSpeed / MAX_SPEED, 0, 1);
+  const distance = 7.2 + speedNorm * 1.3;
+  const height = 3.2 + speedNorm * 0.4;
 
   camPos.set(
-    physics.pos.x - fwd.x * chaseDist,
-    chaseHeight,
-    physics.pos.z - fwd.z * chaseDist
+    physics.pos.x - fwd.x * distance,
+    height,
+    physics.pos.z - fwd.z * distance
   );
   // aim down at the road ahead of the car (never at the sky/underground)
   camTarget.set(
@@ -455,9 +440,10 @@ function frame(now) {
     if (w.front) w.group.rotation.y = -physics.steer * 1.1;
   });
 
-  // steering wheel — physically rotates with A/D (first-person view)
-  if (car.steerWheel) {
-    car.steerWheel.rotation.z = -physics.steer * 1.1;
+  // steering wheel — physically rotates with A/D (first-person view),
+  // angle = steerAngle * 2.5 around Z (wheel plane is XY)
+  if (car.steeringWheelGroup) {
+    car.steeringWheelGroup.rotation.z = physics.steer * 2.5;
   }
 
   // dash neon indicators — pulse with the music bass (first-person view only)
