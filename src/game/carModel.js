@@ -92,7 +92,9 @@ export function buildCar(patch) {
   // ---------- cockpit interior (first-person view) ----------
   const cockpit = new THREE.Group();
   const dashMat = p(new THREE.MeshLambertMaterial({ color: 0x0c0b16 }));
+  const darkCockMat = p(new THREE.MeshLambertMaterial({ color: 0x07060d }));
   const dashTopMat = p(new THREE.MeshLambertMaterial({ color: 0x181527 }));
+  const armMat = p(new THREE.MeshLambertMaterial({ color: 0x05050a })); // matte black
 
   // dashboard — angular PS1 slab across the front of the cabin
   const dash = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.45, 0.55), dashMat);
@@ -103,19 +105,47 @@ export function buildCar(patch) {
   dashTop.rotation.x = -0.32;
   cockpit.add(dashTop);
 
-  // steering wheel — low-poly torus in the XY plane (axis = Z, like a real
-  // wheel), spins around Z with A/D
+  // windshield A-pillars — thin dark struts framing the view (thin enough
+  // to never block the camera's forward look)
+  for (const sx of [-0.74, 0.74]) {
+    const pillar = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.28, 0.22), darkCockMat);
+    pillar.position.set(sx, 1.14, 0.82);
+    pillar.rotation.x = -0.28;
+    cockpit.add(pillar);
+  }
+
+  // center console — retro box between the seats
+  const consoleBox = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.3, 0.45), darkCockMat);
+  consoleBox.position.set(0.0, 0.68, 0.72);
+  cockpit.add(consoleBox);
+
+  // ---- steering wheel + driver's arms (rotate together around Z) ----
   const wheelRimMat = p(new THREE.MeshLambertMaterial({ color: 0x101018 }));
-  const steerWheel = new THREE.Group();
+  const steeringWheelGroup = new THREE.Group();
   const rim = new THREE.Mesh(new THREE.TorusGeometry(0.27, 0.045, 6, 14), wheelRimMat);
-  steerWheel.add(rim);
+  steeringWheelGroup.add(rim);
   const hub = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 0.08, 6), wheelRimMat);
   hub.rotation.x = Math.PI / 2; // cylinder axis → Z (wheel axis)
-  steerWheel.add(hub);
-  steerWheel.position.set(-0.62, 0.95, 0.62);
-  cockpit.add(steerWheel);
+  steeringWheelGroup.add(hub);
 
-  // neon dash indicators — pulse with the music (bass)
+  // matte black arm/glove silhouettes gripping the wheel at 10 and 2 o'clock
+  // (children of steeringWheelGroup → they turn with steerAngle)
+  for (const [ax, ay] of [[0.19, 0.11], [-0.19, 0.11]]) {
+    const arm = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.09, 0.09), armMat);
+    arm.position.set(ax, ay, -0.02);
+    arm.rotation.z = ax > 0 ? 0.3 : -0.3;
+    steeringWheelGroup.add(arm);
+  }
+  steeringWheelGroup.position.set(-0.62, 0.95, 0.62);
+  cockpit.add(steeringWheelGroup);
+
+  // mini retro radio — dark body + weakly glowing screen on the console
+  const radioBody = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.14, 0.1), darkCockMat);
+  radioBody.position.set(0.0, 0.78, 0.48);
+  cockpit.add(radioBody);
+
+  // neon dash indicator bars + speedo rings + radio screen — all pulse
+  // with the music bass
   const dashLights = [];
   for (const [sx, col] of [[-0.42, 0x4df3ff], [0.42, 0xff4df3]]) {
     const lm = p(new THREE.MeshBasicMaterial({ color: col }));
@@ -124,6 +154,20 @@ export function buildCar(patch) {
     cockpit.add(bar);
     dashLights.push({ mat: lm, base: new THREE.Color(col) });
   }
+  // speedometer: cyan outer ring + magenta inner ring
+  for (const [radius, tube, col] of [[0.12, 0.018, 0x4df3ff], [0.075, 0.014, 0xff4df3]]) {
+    const lm = p(new THREE.MeshBasicMaterial({ color: col }));
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(radius, tube, 6, 18), lm);
+    ring.position.set(0.18, 1.02, 1.03);
+    cockpit.add(ring);
+    dashLights.push({ mat: lm, base: new THREE.Color(col) });
+  }
+  // radio screen — weakly glowing
+  const radioScreenMat = p(new THREE.MeshBasicMaterial({ color: 0x0a3a4a }));
+  const radioScreen = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.08, 0.02), radioScreenMat);
+  radioScreen.position.set(0.0, 0.78, 0.43);
+  cockpit.add(radioScreen);
+  dashLights.push({ mat: radioScreenMat, base: new THREE.Color(0x0a3a4a) });
 
   car.add(cockpit);
   cockpit.visible = false; // shown only in COCKPIT_VIEW
@@ -149,5 +193,5 @@ export function buildCar(patch) {
   blob.position.y = 0.04;
   car.add(blob);
 
-  return { group: car, wheels, glow, blob, cockpit, steerWheel, dashLights };
+  return { group: car, wheels, glow, blob, cockpit, steeringWheelGroup, dashLights };
 }
