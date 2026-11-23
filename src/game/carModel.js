@@ -10,7 +10,10 @@ export function buildCar(patch) {
 
   const bodyMat = p(new THREE.MeshLambertMaterial({ color: 0x16161f }));
   const darkMat = p(new THREE.MeshLambertMaterial({ color: 0x0a0a10 }));
-  const glassMat = p(new THREE.MeshLambertMaterial({ color: 0x1a2438, emissive: 0x0a1526 }));
+  // translucent glass so the cockpit view isn't blocked by the cabin face
+  const glassMat = p(new THREE.MeshLambertMaterial({
+    color: 0x1a2438, emissive: 0x0a1526, transparent: true, opacity: 0.5,
+  }));
   const headMat = p(new THREE.MeshBasicMaterial({ color: 0xfff6c8 }));
   const tailMat = p(new THREE.MeshBasicMaterial({ color: 0xff2a4d }));
   const underMat = p(new THREE.MeshBasicMaterial({ color: 0xff4df3 }));
@@ -86,6 +89,45 @@ export function buildCar(patch) {
     wheels.push({ group: w, front: i < 2 });
   });
 
+  // ---------- cockpit interior (first-person view) ----------
+  const cockpit = new THREE.Group();
+  const dashMat = p(new THREE.MeshLambertMaterial({ color: 0x0c0b16 }));
+  const dashTopMat = p(new THREE.MeshLambertMaterial({ color: 0x181527 }));
+
+  // dashboard — angular PS1 slab across the front of the cabin
+  const dash = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.45, 0.55), dashMat);
+  dash.position.set(0, 0.74, 1.0);
+  cockpit.add(dash);
+  const dashTop = new THREE.Mesh(new THREE.BoxGeometry(1.45, 0.14, 0.32), dashTopMat);
+  dashTop.position.set(0, 1.02, 1.06);
+  dashTop.rotation.x = -0.32;
+  cockpit.add(dashTop);
+
+  // steering wheel — low-poly torus in the XY plane (axis = Z, like a real
+  // wheel), spins around Z with A/D
+  const wheelRimMat = p(new THREE.MeshLambertMaterial({ color: 0x101018 }));
+  const steerWheel = new THREE.Group();
+  const rim = new THREE.Mesh(new THREE.TorusGeometry(0.27, 0.045, 6, 14), wheelRimMat);
+  steerWheel.add(rim);
+  const hub = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 0.08, 6), wheelRimMat);
+  hub.rotation.x = Math.PI / 2; // cylinder axis → Z (wheel axis)
+  steerWheel.add(hub);
+  steerWheel.position.set(-0.62, 0.95, 0.62);
+  cockpit.add(steerWheel);
+
+  // neon dash indicators — pulse with the music (bass)
+  const dashLights = [];
+  for (const [sx, col] of [[-0.42, 0x4df3ff], [0.42, 0xff4df3]]) {
+    const lm = p(new THREE.MeshBasicMaterial({ color: col }));
+    const bar = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.09, 0.07), lm);
+    bar.position.set(sx, 1.07, 1.03);
+    cockpit.add(bar);
+    dashLights.push({ mat: lm, base: new THREE.Color(col) });
+  }
+
+  car.add(cockpit);
+  cockpit.visible = false; // shown only in COCKPIT_VIEW
+
   // fake blob shadow (PS1 had blob shadows!)
   const shadowTex = (() => {
     const c = document.createElement('canvas');
@@ -107,5 +149,5 @@ export function buildCar(patch) {
   blob.position.y = 0.04;
   car.add(blob);
 
-  return { group: car, wheels, glow, blob };
+  return { group: car, wheels, glow, blob, cockpit, steerWheel, dashLights };
 }

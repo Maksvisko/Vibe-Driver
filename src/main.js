@@ -40,8 +40,8 @@ const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x07060f);
 scene.fog = new THREE.Fog(0x0b0820, 60, 340);
 
-// near/far tuned: 0.5 avoids clipping the car/road, 600 matches fog — no cut geometry
-const camera = new THREE.PerspectiveCamera(68, innerWidth / innerHeight, 0.5, 600);
+// near tuned for cockpit view: 0.1 so dash/wheel never clip; far 600 matches fog
+const camera = new THREE.PerspectiveCamera(68, innerWidth / innerHeight, 0.1, 600);
 camera.position.set(0, 6.5, 16); // start above ground (never lerp up from y=0)
 
 // lights — moonlit night
@@ -145,13 +145,21 @@ const mmCtx = dom.minimap.getContext('2d');
 track.drawMinimapPath(mmCtx, dom.minimap.width, dom.minimap.height);
 
 // ---------------- camera rig ----------------
+const CAM_CHASE = 'CHASE_VIEW';
+const CAM_COCKPIT = 'COCKPIT_VIEW';
+
 const camPos = new THREE.Vector3();
 const camTarget = new THREE.Vector3();
 const tmpFwd = new THREE.Vector3();
+const tmpLocal = new THREE.Vector3();
 
 // music-reactive camera state
 let shakeX = 0;
 let shakeY = 0;
+
+// first-person state
+let cameraMode = CAM_CHASE;
+let leanRoll = 0;         // smoothed cockpit lean (roll opposite to turn)
 
 function updateCamera(dt, introMode = false) {
   const fwd = physics.forwardVec(tmpFwd);
@@ -182,6 +190,47 @@ function updateCamera(dt, introMode = false) {
     camera.position.x += shakeX * 0.5;
     camera.position.y += shakeY * 0.5;
     camera.lookAt(physics.pos.x, 1.2, physics.pos.z);
+    return;
+  }
+
+  if (cameraMode === CAM_COCKPIT) {
+    // ---- first-person: camera bolted inside the cabin ----
+    // anchor: local (0, 0.8, 0.2) → world, following car heading
+    car.group.updateMatrixWorld(true);
+    tmpLocal.set(0, 0.8, 0.2);
+    car.group.localToWorld(tmpLocal);
+    camPos.copy(tmpLocal);
+
+    // aim at the road ahead through the windshield (local +Z = forward)
+    tmpLocal.set(0, 0.9, 7);
+    car.group.localToWorld(tmpLocal);
+    camTarget.copy(tmpLocal);
+
+    // smooth lerp into the cockpit (no jump when toggling)
+    const stiff = 1 - Math.exp(-10 * dt);
+    camera.position.lerp(camPos, stiff);
+
+    // lean: roll opposite to lateral acceleration (G-force effect)
+    const leanTarget = THREE.MathUtils.clamp(-physics.accelLat * 0.02, -0.06, 0.06);
+    leanRoll += (leanTarget - leanRoll) * Math.min(1, dt * 5);
+
+    // high-speed high-frequency vibration — feels the speed/engine
+    const vibAmp = THREE.MathUtils.clamp(speed / 33, 0, 0.05);
+    const vt = performance.now() * 0.0013;
+    const vibX = Math.sin(vt * 41) * vibAmp;
+    const vibZ = Math.cos(vt * 37) * vibAmp * 0.8;
+    const vibY = Math.sin(vt * 53) * vibAmp * 0.5;
+    camera.position.x += vibX;
+    camera.position.y += vibY;
+    camera.position.z += vibZ;
+
+    camera.lookAt(camTarget);
+    camera.rotation.z += leanRoll; // roll after lookAt
+
+    // speed FOV kick + music "breathing" pulse at high loudness
+    const targetFov = 70 + Math.min(10, speed * 0.25) + Math.min(6, level * 8);
+    camera.fov += (targetFov - camera.fov) * (1 - Math.exp(-4 * dt));
+    camera.updateProjectionMatrix();
     return;
   }
 
@@ -240,6 +289,14 @@ function handleGlobalKeys() {
       startGame();
     }
     return;
+  }
+
+  // camera mode toggle: CHASE_VIEW ↔ COCKPIT_VIEW (works anytime while playing)
+  if (keys.wasPressed('KeyC') && state !== 'paused') {
+    cameraMode = cameraMode === CAM_CHASE ? CAM_COCKPIT : CAM_CHASE;
+    car.cockpit.visible = cameraMode === CAM_COCKPIT;
+    dom.hud.classList.toggle('cockpit', cameraMode === CAM_COCKPIT);
+    toast(cameraMode === CAM_COCKPIT ? '🎥 Вид: САЛОН (C)' : '🎥 Вид: СПОЗАД (C)', 1600);
   }
 
   if (radioOpen) {
@@ -385,6 +442,24 @@ function frame(now) {
     w.group.rotation.x += wheelSpin;
     if (w.front) w.group.rotation.y = -physics.steer * 1.1;
   });
+
+  // steering wheel — physically rotates with A/D (first-person view)
+  if (car.steerWheel) {
+    car.steerWheel.rotation.z = -physics.steer * 1.1;
+  }
+
+  // dash neon indicators — pulse with the music bass (first-person view only)
+  if (car.dashLights && car.dashLights.length && car.cockpit.visible) {
+    const b = music.bass();
+    const boost = 0.45 + b * 1.9; // brightness multiplier
+    car.dashLights.forEach(({ mat, base }) => {
+      mat.color.setRGB(
+        THREE.MathUtils.clamp(base.r * boost, 0, 1),
+        THREE.MathUtils.clamp(base.g * boost, 0, 1),
+        THREE.MathUtils.clamp(base.b * boost, 0, 1)
+      );
+    });
+  }
 
   // underglow pulse with music
   if (car.glow) {
