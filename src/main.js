@@ -161,6 +161,10 @@ let shakeY = 0;
 let cameraMode = CAM_CHASE;
 let leanRoll = 0;         // smoothed cockpit lean (roll opposite to turn)
 
+// chase-cam smoothing state (eased distance & height, FPS-safe)
+let chaseDist = 7.0;
+let chaseHeight = 3.2;
+
 function updateCamera(dt, introMode = false) {
   const fwd = physics.forwardVec(tmpFwd);
   const speed = Math.max(0, physics.speed); // reverse shouldn't shrink distance
@@ -194,15 +198,17 @@ function updateCamera(dt, introMode = false) {
   }
 
   if (cameraMode === CAM_COCKPIT) {
-    // ---- first-person: camera bolted inside the cabin ----
-    // anchor: local (0, 0.8, 0.2) → world, following car heading
+    // ---- first-person: camera at the driver's eye level ----
+    // anchor: driver-left seat, eye height (x:-0.25, y:1.2, z:0.1),
+    // follows the car heading via the car group transform
     car.group.updateMatrixWorld(true);
-    tmpLocal.set(0, 0.8, 0.2);
+    tmpLocal.set(-0.25, 1.2, 0.1);
     car.group.localToWorld(tmpLocal);
     camPos.copy(tmpLocal);
 
-    // aim at the road ahead through the windshield (local +Z = forward)
-    tmpLocal.set(0, 0.9, 7);
+    // look strictly forward through the windshield at horizon height —
+    // the lower screen keeps only the dash/hood edge, not body geometry
+    tmpLocal.set(-0.25, 1.2, 10);
     car.group.localToWorld(tmpLocal);
     camTarget.copy(tmpLocal);
 
@@ -227,20 +233,26 @@ function updateCamera(dt, introMode = false) {
     camera.lookAt(camTarget);
     camera.rotation.z += leanRoll; // roll after lookAt
 
-    // speed FOV kick + music "breathing" pulse at high loudness
-    const targetFov = 70 + Math.min(10, speed * 0.25) + Math.min(6, level * 8);
-    camera.fov += (targetFov - camera.fov) * (1 - Math.exp(-4 * dt));
+    // FIXED field of view in the cockpit — no speed kick, no music pulse
+    // (those stay in CHASE_VIEW only, so the cabin screen never squeezes)
+    camera.fov = 72;
     camera.updateProjectionMatrix();
     return;
   }
 
-  // chase cam — sits high & far enough to never sink into asphalt/barriers
-  const back = 7.5 + speed * 0.07;
-  const height = 3.8 + speed * 0.015;
+  // chase cam — smooth, speed-scaled distance & height (no fishtail):
+  // dist 7.0 → 8.5, height 3.2 → 3.6, each lerped with its own FPS-safe
+  // rate so the camera eases out on acceleration and eases back on braking
+  const speedNorm = THREE.MathUtils.clamp(speed / 33, 0, 1); // 0..1 of top speed
+  const targetBack = 7.0 + speedNorm * 1.5; // 7.0 → 8.5
+  const targetHeight = 3.2 + speedNorm * 0.4; // 3.2 → 3.6
+  chaseDist += (targetBack - chaseDist) * (1 - Math.exp(-2.2 * dt));
+  chaseHeight += (targetHeight - chaseHeight) * (1 - Math.exp(-2.2 * dt));
+
   camPos.set(
-    physics.pos.x - fwd.x * back,
-    height,
-    physics.pos.z - fwd.z * back
+    physics.pos.x - fwd.x * chaseDist,
+    chaseHeight,
+    physics.pos.z - fwd.z * chaseDist
   );
   // aim down at the road ahead of the car (never at the sky/underground)
   camTarget.set(
@@ -249,7 +261,7 @@ function updateCamera(dt, introMode = false) {
     physics.pos.z + fwd.z * 5.5
   );
 
-  const stiff = 1 - Math.exp(-14 * dt); // was 6.5 — much snappier
+  const stiff = 1 - Math.exp(-8 * dt); // calm, no springy overshoot
   camera.position.lerp(camPos, stiff);
   if (camera.position.y < 1.6) camera.position.y = 1.6; // hard floor: never under the road
   // apply music shake offset (applied AFTER the floor clamp so it can't sink below it)
