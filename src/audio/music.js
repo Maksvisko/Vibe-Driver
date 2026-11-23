@@ -49,6 +49,7 @@ export class MusicPlayer {
     this.analyser = null;
     this.freqData = null;
     this.synth = new SynthLoop();
+    this._specBuf = []; // reused spectrum output (no per-frame allocation)
 
     this.audio.addEventListener('ended', () => this.next(true));
     this.audio.addEventListener('error', () => {
@@ -256,15 +257,28 @@ export class MusicPlayer {
     return this.index >= 0 ? this.tracks[this.index] : null;
   }
 
-  /** spectrum levels 0..1 for `bars` columns */
+  /**
+   * spectrum levels 0..1 for `bars` columns.
+   * REUSES an internal buffer (this._specBuf) — never allocates in the
+   * render loop. Callers must consume the result immediately (it is
+   * overwritten on the next call), which all current callers do.
+   */
   spectrum(bars = 10) {
-    if (!this.analyser || !this.playing) return new Array(bars).fill(0.04);
+    if (!this.analyser || !this.playing) {
+      const out = this._specBuf;
+      for (let i = 0; i < bars; i++) out[i] = 0.04;
+      out.length = bars;
+      return out;
+    }
     try {
       this.analyser.getByteFrequencyData(this.freqData);
     } catch {
-      return new Array(bars).fill(0.04);
+      const out = this._specBuf;
+      for (let i = 0; i < bars; i++) out[i] = 0.04;
+      out.length = bars;
+      return out;
     }
-    const out = [];
+    const out = this._specBuf;
     const step = Math.max(1, Math.floor(this.freqData.length / bars));
     for (let b = 0; b < bars; b++) {
       let sum = 0;
@@ -273,8 +287,9 @@ export class MusicPlayer {
         const idx = b * step + i;
         if (idx < this.freqData.length) { sum += this.freqData[idx]; n++; }
       }
-      out.push(Math.max(0.04, n ? sum / n / 255 : 0.04));
+      out[b] = Math.max(0.04, n ? sum / n / 255 : 0.04);
     }
+    out.length = bars;
     return out;
   }
 

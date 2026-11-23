@@ -145,6 +145,9 @@ const mmCtx = dom.minimap.getContext('2d');
 track.drawMinimapPath(mmCtx, dom.minimap.width, dom.minimap.height);
 
 // ---------------- camera rig ----------------
+// ONE camera, two modes — switching only changes cameraMode.
+// NO allocations in the loop: all vectors below are declared once here
+// and reused via .set()/.copy()/.add().
 const CAM_CHASE = 'CHASE_VIEW';
 const CAM_COCKPIT = 'COCKPIT_VIEW';
 
@@ -156,15 +159,19 @@ const tmpLocal = new THREE.Vector3();
 // first-person state
 let cameraMode = CAM_CHASE;
 
-// chase-cam smoothing state (smooth look yaw — no fishtail)
-let smoothedAngle = 0;
+// reused physics input object (no per-frame allocation)
+const inputState = { throttle: 0, steer: 0, handbrake: false };
 
 function updateCamera(dt, introMode = false) {
   const fwd = physics.forwardVec(tmpFwd);
   const speed = Math.max(0, physics.speed);
 
+  // horizon is FIXED — the camera never spins around its axis or tilts
+  // under the ground, in any mode
+  camera.up.set(0, 1, 0);
+
   if (introMode) {
-    // slow orbit around car — steady, no music shake
+    // slow orbit around car — steady
     const t = performance.now() * 0.00022;
     camPos.set(
       physics.pos.x + Math.cos(t) * 14,
@@ -178,63 +185,68 @@ function updateCamera(dt, introMode = false) {
 
   if (cameraMode === CAM_COCKPIT) {
     // ---- first-person: HARD-ATTACHED to the car, zero position smoothing ----
-    // eye anchor: driver-left seat, eye level (x:-0.28, y:1.18, z:0.15) —
-    // world position is copied instantly every frame, the camera never lags
-    // or drifts back under acceleration
+    // eye anchor: driver-left seat (local X=-0.3, Y=1.15, Z=0.1) — the
+    // world position is copied instantly every frame, the camera never
+    // lags, drifts or falls through the floor
     car.group.updateMatrixWorld(true);
-    tmpLocal.set(-0.28, 1.18, 0.15);
+    tmpLocal.set(-0.3, 1.15, 0.1);
     car.group.localToWorld(tmpLocal);
     camera.position.copy(tmpLocal);
 
-    // look strictly forward, parallel to the hood (local +Z = forward)
-    // through the windshield — a point far ahead at eye height
-    tmpLocal.set(-0.28, 1.18, 20);
+    // look strictly forward through the windshield — a point far ahead
+    // along the car's forward vector at eye/horizon height
+    tmpLocal.set(-0.3, 1.15, 20);
     car.group.localToWorld(tmpLocal);
     camera.lookAt(tmpLocal);
 
-    // FIXED roll: the cabin is monolithic — no leaning/tilting sideways
-    // on turns, only the world outside turns
-    camera.rotation.z = 0;
-
     // FIXED field of view in the cockpit — no speed kick, no music pulse
-    // (those stay in CHASE_VIEW only, so the cabin screen never squeezes)
     camera.fov = 72;
     camera.updateProjectionMatrix();
     return;
   }
 
-  // chase cam — strictly attached to the car's direction of travel:
-  // the camera sits EXACTLY back 7.2 m / up 3.2 m along the car's forward
-  // vector. No distance/height scaling with speed, no shake offsets —
-  // the camera turns smoothly and synchronously behind the tail, no fishtail.
-  // Position: stiff lerp toward the ideal spot (no jitter, no lag in turn-in).
+  // ---- third-person (chase): RIGIDLY behind the car ----
+  // camera sits exactly back 7.5 m / up 3.2 m along the car's forward
+  // vector — no lerp, no distance scaling, no shake. It turns exactly
+  // with the car, so there can be no fishtail.
   camPos.set(
-    physics.pos.x - fwd.x * 7.2,
+    physics.pos.x - fwd.x * 7.5,
     physics.pos.y + 3.2,
-    physics.pos.z - fwd.z * 7.2
+    physics.pos.z - fwd.z * 7.5
   );
-  const stiff = 1 - Math.exp(-24 * dt); // very stiff: near-instant, no overshoot
-  camera.position.lerp(camPos, stiff);
+  camera.position.copy(camPos);
 
-  // look angle: damp the yaw toward "forward down the road" — smooth,
-  // never swinging left/right independently of the car (no fishtail)
+  // look at a point 5 m ahead of the car at 1.2 m height
   camTarget.set(
-    physics.pos.x + fwd.x * 5.5,
-    0.8,
-    physics.pos.z + fwd.z * 5.5
+    physics.pos.x + fwd.x * 5,
+    1.2,
+    physics.pos.z + fwd.z * 5
   );
-  const targetYaw = Math.atan2(camTarget.x - camera.position.x, camTarget.z - camera.position.z);
-  smoothedAngle = THREE.MathUtils.dampAngle(smoothedAngle, targetYaw, 12, dt);
-  camera.rotation.y = smoothedAngle;
-  camera.rotation.x = 0; // no leftover pitch from the cockpit lookAt
-  camera.rotation.z = 0; // no roll, ever
-  camera.position.y = Math.max(camera.position.y, 1.6); // hard floor: never under the road
+  camera.lookAt(camTarget);
 
-  // speed FOV kick (gentler) — no music "breathing" pulse on the camera
+  // speed FOV kick (gentle) — no music pulse on the camera
   const targetFov = 66 + Math.min(14, speed * 0.3);
   camera.fov += (targetFov - camera.fov) * (1 - Math.exp(-4 * dt));
   camera.updateProjectionMatrix();
 }
+
+// ---------------- viewport / fullscreen ----------------
+function onWindowResize() {
+  const width = window.innerWidth;
+  const height = window.innerHeight;
+  if (width === 0 || height === 0) return; // guard: never resize to nothing
+
+  camera.aspect = width / height;
+  camera.updateProjectionMatrix();
+
+  // PS1Renderer.resize updates the canvas, the low-res render target
+  // (height ~260px, width proportional) and the dither uniform
+  if (ps1 && typeof ps1.resize === 'function') {
+    ps1.resize(width, height);
+  }
+}
+window.addEventListener('resize', onWindowResize);
+document.addEventListener('fullscreenchange', onWindowResize);
 
 // ---------------- input handling per frame ----------------
 /** Start the game: unlock audio (user gesture), begin music, show HUD. */
@@ -267,9 +279,13 @@ function handleGlobalKeys() {
   // camera mode toggle: CHASE_VIEW ↔ COCKPIT_VIEW (works anytime while playing)
   if (keys.wasPressed('KeyC') && state !== 'paused') {
     cameraMode = cameraMode === CAM_CHASE ? CAM_COCKPIT : CAM_CHASE;
-    car.cockpit.visible = cameraMode === CAM_COCKPIT;
-    dom.hud.classList.toggle('cockpit', cameraMode === CAM_COCKPIT);
-    toast(cameraMode === CAM_COCKPIT ? '🎥 Вид: САЛОН (C)' : '🎥 Вид: СПОЗАД (C)', 1600);
+    const inCockpit = cameraMode === CAM_COCKPIT;
+    car.cockpit.visible = inCockpit;
+    // windshield glass hidden in the cockpit view (road stays clear),
+    // shown in chase view as a translucent windshield
+    if (car.glass) car.glass.visible = !inCockpit;
+    dom.hud.classList.toggle('cockpit', inCockpit);
+    toast(inCockpit ? '🎥 Вид: САЛОН (C)' : '🎥 Вид: СПОЗАД (C)', 1600);
   }
 
   if (radioOpen) {
@@ -380,19 +396,11 @@ function frame(now) {
   // physics — slows way down while radio open (chill, not stopped)
   if (state === 'driving') {
     const timeScale = inRadio ? 0.25 : 1.0;
-    let input;
-    if (inRadio) {
-      input = { throttle: 0, steer: 0, handbrake: true };
-    } else {
-      input = {
-        throttle: keys.throttle,
-        steer: -keys.steer, // A = left → steer -1? keys.steer: A→+1... flip so A = left
-        handbrake: keys.handbrake,
-      };
-      // keys.steer: A → 1? check keyboard: steer = A(1) - D(1)... A pressed → 1, D → -1
-      // physics expects: -1 = left, +1 = right → pass -keys.steer
-    }
-    physics.update(dt * timeScale, input);
+    // REUSED input object — no per-frame allocation in the render loop
+    inputState.throttle = inRadio ? 0 : keys.throttle;
+    inputState.steer = inRadio ? 0 : -keys.steer; // A = left → steer -1... flip so A = left
+    inputState.handbrake = inRadio ? true : keys.handbrake;
+    physics.update(dt * timeScale, inputState);
   }
 
   // car visuals: heading + wheel spin/steer
