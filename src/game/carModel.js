@@ -173,25 +173,103 @@ export function buildCar(patch) {
   consoleBox.position.set(0.0, 0.68, 0.72);
   cockpit.add(consoleBox);
 
-  // ---- steering wheel + driver's arms (rotate together around Z) ----
+  // ---- DARK PLAYER MODEL (driver silhouette) ----
+  // matte-black torso + shoulders + neck + head — reads as a dark
+  // silhouette in the lower part of the cockpit frame, never blocking
+  // the road view above the dash
+  const playerMat = p(new THREE.MeshLambertMaterial({ color: 0x05050a, side: THREE.DoubleSide }));
+  // torso: chest sits in front of the camera, peeks above the dash top
+  // edge in the lower-center of the screen
+  const torso = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.4, 0.3), playerMat);
+  torso.position.set(-0.18, 1.0, 0.5);
+  torso.rotation.x = 0.22; // lean forward toward the wheel
+  cockpit.add(torso);
+  // shoulders — darker mass on both sides of the neck
+  for (const sx of [-0.3, -0.06]) {
+    const shoulder = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.16, 0.2), playerMat);
+    shoulder.position.set(sx, 1.12, 0.42);
+    shoulder.rotation.x = 0.2;
+    cockpit.add(shoulder);
+  }
+  // neck + head — behind the camera eye, completes the model without
+  // entering the view
+  const neck = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.14, 0.12), playerMat);
+  neck.position.set(-0.18, 1.18, 0.38);
+  cockpit.add(neck);
+  const head = new THREE.Mesh(new THREE.BoxGeometry(0.17, 0.2, 0.2), playerMat);
+  head.position.set(-0.18, 1.27, 0.3);
+  cockpit.add(head);
+
+  // ---- HANDBRAKES — lever between the seats on the console ----
+  // dark lever stalk + grip, classic rally-style handbrake
+  const hbMat = p(new THREE.MeshLambertMaterial({ color: 0x0a0a12, side: THREE.DoubleSide }));
+  const hbGripMat = p(new THREE.MeshLambertMaterial({ color: 0x15151f, side: THREE.DoubleSide }));
+  const hb = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.22, 0.06), hbMat);
+  hb.position.set(0.16, 0.78, 0.5);
+  hb.rotation.z = 0.35;
+  cockpit.add(hb);
+  const hbGrip = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.14, 0.1), hbGripMat);
+  hbGrip.position.set(0.21, 0.94, 0.56);
+  hbGrip.rotation.z = 0.35;
+  cockpit.add(hbGrip);
+  // handbrake glowing indicator dot (orange, pulses with the bass)
+  const hbDotMat = p(new THREE.MeshBasicMaterial({ color: 0xff8a3d, side: THREE.DoubleSide }));
+  const hbDot = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.05, 0.05), hbDotMat);
+  hbDot.position.set(0.24, 1.0, 0.58);
+  cockpit.add(hbDot);
+
+  // ---- ROUND RADIO — circular radio on the console ----
+  // round radio body with a glowing circular screen (like a retro
+  // circular radio / tuner face) instead of the old box radio
+  const radioGroup = new THREE.Group();
+  const radioBodyMat = p(new THREE.MeshLambertMaterial({ color: 0x0a0a12, side: THREE.DoubleSide }));
+  const radioDisc = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.16, 0.1, 24), radioBodyMat);
+  radioDisc.rotation.x = Math.PI / 2; // flat disc facing the driver
+  radioGroup.add(radioDisc);
+  // glowing circular screen on the radio face
+  const radioScreenMat = p(new THREE.MeshBasicMaterial({ color: 0x0a3a4a, side: THREE.DoubleSide }));
+  const radioScreen = new THREE.Mesh(new THREE.CircleGeometry(0.12, 24), radioScreenMat);
+  radioScreen.position.z = 0.052;
+  radioGroup.add(radioScreen);
+  // tuning knob on the right side of the round radio
+  const knobMat = p(new THREE.MeshLambertMaterial({ color: 0x15151f, side: THREE.DoubleSide }));
+  const knob = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.08, 8), knobMat);
+  knob.rotation.x = Math.PI / 2;
+  knob.position.set(0.16, 0, 0.03);
+  radioGroup.add(knob);
+  radioGroup.position.set(0.02, 0.82, 0.5);
+  radioGroup.rotation.x = -0.35; // tilt toward the driver
+  cockpit.add(radioGroup);
+
+  // ---- STEERING WHEEL — clearly on the driver's LEFT side ----
+  // rotation.z is driven by physics.steer in main.js (wheel turns with
+  // the steering input)
   const wheelRimMat = p(new THREE.MeshLambertMaterial({ color: 0x101018, side: THREE.DoubleSide }));
   const steeringWheelGroup = new THREE.Group();
-  const rim = new THREE.Mesh(new THREE.TorusGeometry(0.26, 0.045, 6, 14), wheelRimMat);
+  const rim = new THREE.Mesh(new THREE.TorusGeometry(0.26, 0.045, 6, 16), wheelRimMat);
   steeringWheelGroup.add(rim);
   const hub = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 0.08, 6), wheelRimMat);
   hub.rotation.x = Math.PI / 2; // cylinder axis → Z (wheel axis)
   steeringWheelGroup.add(hub);
-
-  // matte black arm/glove silhouettes BELOW and BESIDE the wheel at
-  // 9 and 3 o'clock (driver's hands stay low, wheel not blocking the view)
-  for (const [ax, ay] of [[0.19, 0.02], [-0.19, 0.02]]) {
-    const arm = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.11, 0.09), armMat);
-    arm.position.set(ax, ay, -0.02);
-    arm.rotation.z = ax > 0 ? 0.55 : -0.55;
-    steeringWheelGroup.add(arm);
+  // three-spoke wheel (classic PS1-era 3-spoke steering wheel)
+  const spokeGeo = new THREE.BoxGeometry(0.05, 0.21, 0.04);
+  for (const ang of [0, 0.63, -0.63]) {
+    const spoke = new THREE.Mesh(spokeGeo, wheelRimMat);
+    spoke.position.set(Math.cos(ang) * 0.135, Math.sin(ang) * 0.135, 0);
+    spoke.rotation.z = ang;
+    steeringWheelGroup.add(spoke);
   }
-  // lower & lefter wheel: clear of the windshield, road visible above it
-  steeringWheelGroup.position.set(-0.35, 0.85, 0.62);
+  // dark hands gripping the rim at 10 and 2 o'clock (ride the wheel)
+  const handGeo = new THREE.BoxGeometry(0.09, 0.09, 0.09);
+  for (const ang of [150, 30]) {
+    const rad = (ang * Math.PI) / 180;
+    const hand = new THREE.Mesh(handGeo, armMat);
+    hand.position.set(Math.cos(rad) * 0.26, Math.sin(rad) * 0.26, 0);
+    steeringWheelGroup.add(hand);
+  }
+  // wheel on the driver's left, low and clear of the windshield —
+  // road and sky stay visible above it
+  steeringWheelGroup.position.set(-0.5, 0.82, 0.58);
   cockpit.add(steeringWheelGroup);
 
   // ---- spinning neon vinyl record on the console (right of the wheel) ----
@@ -217,14 +295,9 @@ export function buildCar(patch) {
   neonDisc.position.z = 0.014;
   vinylGroup.add(neonDisc);
   vinylGroup.userData.neon = neonDisc; // for bass pulse in main.js
-  vinylGroup.position.set(0.3, 0.79, 0.6);
+  vinylGroup.position.set(0.36, 0.79, 0.58);
   vinylGroup.rotation.z = 0.25; // tilt so the disc is visible from the seat
   cockpit.add(vinylGroup);
-
-  // mini retro radio — dark body + weakly glowing screen on the console
-  const radioBody = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.14, 0.1), darkCockMat);
-  radioBody.position.set(0.0, 0.78, 0.42);
-  cockpit.add(radioBody);
 
   // neon dash indicator bars + speedo rings + radio screen — all pulse
   // with the music bass. Instruments are neon-glowing (turquoise / orange)
@@ -256,12 +329,9 @@ export function buildCar(patch) {
     cockpit.add(ring);
     dashLights.push({ mat: lm, base: new THREE.Color(col) });
   }
-  // radio screen — weakly glowing
-  const radioScreenMat = p(new THREE.MeshBasicMaterial({ color: 0x0a3a4a, side: THREE.DoubleSide }));
-  const radioScreen = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.08, 0.02), radioScreenMat);
-  radioScreen.position.set(0.0, 0.78, 0.47);
-  cockpit.add(radioScreen);
+  // round radio screen + handbrake indicator pulse with the bass
   dashLights.push({ mat: radioScreenMat, base: new THREE.Color(0x0a3a4a) });
+  dashLights.push({ mat: hbDotMat, base: new THREE.Color(0xff8a3d) });
   // vinyl neon center also pulses with bass
   dashLights.push({ mat: neonMat, base: new THREE.Color(0x4df3ff) });
 
