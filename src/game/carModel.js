@@ -10,10 +10,16 @@ export function buildCar(patch) {
 
   // NOTE: every car material is DoubleSide — polygons must never vanish
   // from a different viewing angle (chase cam sees the car from behind,
-  // cockpit cam from inside). Body colors are bright enough to stay
-  // visible in the night scene (a near-black body was invisible).
-  const bodyMat = p(new THREE.MeshLambertMaterial({ color: 0x2e2e48, side: THREE.DoubleSide }));
-  const darkMat = p(new THREE.MeshLambertMaterial({ color: 0x1b1b28, side: THREE.DoubleSide }));
+  // cockpit cam from inside).
+  // Body: pearl-white / light metallic with a subtle gloss — roughness
+  // 0.35 / metalness 0.2 gives clear facet highlights and shadows from
+  // the street lamps and neon (NFS1 / OutRun look), never a black blob.
+  const bodyMat = p(new THREE.MeshStandardMaterial({
+    color: 0xe8ecf4, roughness: 0.35, metalness: 0.2, side: THREE.DoubleSide,
+  }));
+  const darkMat = p(new THREE.MeshStandardMaterial({
+    color: 0x1b1b28, roughness: 0.6, metalness: 0.1, side: THREE.DoubleSide,
+  }));
   // translucent glass so the cockpit view isn't blocked by the cabin face
   // (hidden entirely in cockpit view — see main.js camera toggle)
   const glassMat = p(new THREE.MeshLambertMaterial({
@@ -29,10 +35,24 @@ export function buildCar(patch) {
   body.position.y = 0.55;
   car.add(body);
 
+  // neon side accent — thin turquoise strip running along both boards
+  // (NFS / Miami Vice style neon accent)
+  const sideStripMat = p(new THREE.MeshBasicMaterial({ color: 0x4df3ff, side: THREE.DoubleSide }));
+  for (const sx of [-0.94, 0.94]) {
+    const strip = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.07, 3.9), sideStripMat);
+    strip.position.set(sx, 0.52, 0.1);
+    car.add(strip);
+  }
+
   // hood taper
   const nose = new THREE.Mesh(new THREE.BoxGeometry(1.7, 0.34, 0.9), bodyMat);
   nose.position.set(0, 0.42, 2.35);
   car.add(nose);
+
+  // neon hood strip — thin turquoise line along the front edge of the hood
+  const hoodStrip = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.05, 0.08), sideStripMat);
+  hoodStrip.position.set(0, 0.58, 2.62);
+  car.add(hoodStrip);
 
   // cabin (windshield glass — hidden in cockpit view so the road stays
   // clear; shown in chase view as a translucent windshield)
@@ -79,7 +99,10 @@ export function buildCar(patch) {
   const wheelGeo = new THREE.CylinderGeometry(0.42, 0.42, 0.34, 10);
   wheelGeo.rotateZ(Math.PI / 2);
   const wheelMat = p(new THREE.MeshLambertMaterial({ color: 0x14141c, side: THREE.DoubleSide }));
-  const rimMat = p(new THREE.MeshLambertMaterial({ color: 0x3a3a55, side: THREE.DoubleSide }));
+  // silver / chrome rims — wheel rotation reads clearly in motion
+  const rimMat = p(new THREE.MeshStandardMaterial({
+    color: 0xcccccc, roughness: 0.3, metalness: 0.85, side: THREE.DoubleSide,
+  }));
 
   const wheels = [];
   const wheelPos = [
@@ -183,18 +206,27 @@ export function buildCar(patch) {
   cockpit.add(radioBody);
 
   // neon dash indicator bars + speedo rings + radio screen — all pulse
-  // with the music bass
+  // with the music bass. Instruments are neon-glowing (turquoise / orange)
+  // so they read beautifully in the dark cabin.
   const dashLights = [];
-  // neon strips along the torpedo (dash front edge)
-  for (const [sx, col] of [[-0.75, 0x4df3ff], [0.75, 0xff4df3]]) {
+  // neon strips along the torpedo (dash front edge) — cyan left, orange right
+  for (const [sx, col] of [[-0.75, 0x4df3ff], [0.75, 0xff8a3d]]) {
     const lm = p(new THREE.MeshBasicMaterial({ color: col, side: THREE.DoubleSide }));
     const bar = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.09, 0.07), lm);
     bar.position.set(sx, 0.78, 1.15);
     cockpit.add(bar);
     dashLights.push({ mat: lm, base: new THREE.Color(col) });
   }
-  // retro speedo backlight: cyan outer ring + magenta inner ring
-  for (const [radius, tube, col] of [[0.12, 0.018, 0x4df3ff], [0.075, 0.014, 0xff4df3]]) {
+  // neon buttons row on the dash (small glowing "chips")
+  for (const [bx, col] of [[-0.45, 0x4df3ff], [-0.15, 0xff8a3d], [0.15, 0x4df3ff], [0.45, 0xff8a3d]]) {
+    const lm = p(new THREE.MeshBasicMaterial({ color: col, side: THREE.DoubleSide }));
+    const btn = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.07, 0.05), lm);
+    btn.position.set(bx, 0.95, 1.02);
+    cockpit.add(btn);
+    dashLights.push({ mat: lm, base: new THREE.Color(col) });
+  }
+  // retro speedo backlight: cyan outer ring + orange inner ring
+  for (const [radius, tube, col] of [[0.12, 0.018, 0x4df3ff], [0.075, 0.014, 0xff8a3d]]) {
     const lm = p(new THREE.MeshBasicMaterial({ color: col, side: THREE.DoubleSide }));
     const ring = new THREE.Mesh(new THREE.TorusGeometry(radius, tube, 6, 18), lm);
     ring.position.set(0.18, 1.02, 1.03);
