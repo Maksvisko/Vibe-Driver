@@ -76,12 +76,24 @@ export function buildCar(patch) {
     car.add(post);
   }
 
-  // headlights
+  // headlights — meshes (emissive toggled by F) + two warm-white
+  // spotlights that illuminate the road and barriers ahead
+  const headLights = [];
+  const headTarget = new THREE.Object3D(); // shared spotlight target
+  headTarget.position.set(0, 0.4, 5); // aimed forward, down slightly
+  car.add(headTarget);
   for (const sx of [-0.6, 0.6]) {
     const h = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.18, 0.1), headMat);
     h.position.set(sx, 0.52, 2.81);
     car.add(h);
+
+    const spot = new THREE.SpotLight(0xfff8e7, 0, 80, 0.65, 0.5, 2);
+    spot.position.set(sx, 0.52, 2.81);
+    spot.target = headTarget;
+    car.add(spot);
+    headLights.push(spot);
   }
+  // headlights start OFF — toggled with F (see main.js)
   // taillights (full-width strip — very PS1)
   const tail = new THREE.Mesh(new THREE.BoxGeometry(1.7, 0.14, 0.08), tailMat);
   tail.position.set(0, 0.7, -2.13);
@@ -122,7 +134,9 @@ export function buildCar(patch) {
 
   // ---------- cockpit interior (first-person view) ----------
   const cockpit = new THREE.Group();
-  const dashMat = p(new THREE.MeshLambertMaterial({ color: 0x0c0b16, side: THREE.DoubleSide }));
+  // dash: light gray so the torpedo reads as a distinct surface, clearly
+  // separated from the dark road below
+  const dashMat = p(new THREE.MeshLambertMaterial({ color: 0x1a1b24, side: THREE.DoubleSide }));
   const darkCockMat = p(new THREE.MeshLambertMaterial({ color: 0x07060d, side: THREE.DoubleSide }));
   const dashTopMat = p(new THREE.MeshLambertMaterial({ color: 0x181527, side: THREE.DoubleSide }));
   const armMat = p(new THREE.MeshLambertMaterial({ color: 0x05050a, side: THREE.DoubleSide })); // matte black
@@ -136,6 +150,13 @@ export function buildCar(patch) {
   dashTop.position.set(0, 1.02, 1.06);
   dashTop.rotation.x = -0.32;
   cockpit.add(dashTop);
+
+  // neon facia strip along the dash's top-front edge — a thin glowing
+  // line that makes the torpedo contour read clearly (bass-pulsed)
+  const faciaMat = p(new THREE.MeshBasicMaterial({ color: 0x4df3ff, side: THREE.DoubleSide }));
+  const facia = new THREE.Mesh(new THREE.BoxGeometry(1.72, 0.04, 0.07), faciaMat);
+  facia.position.set(0, 0.98, 1.24);
+  cockpit.add(facia);
 
   // windshield A-pillars — wider dark struts framing the view on both
   // sides of the windshield (carcass), thin enough to never block the
@@ -209,6 +230,8 @@ export function buildCar(patch) {
   // with the music bass. Instruments are neon-glowing (turquoise / orange)
   // so they read beautifully in the dark cabin.
   const dashLights = [];
+  // dash facia strip pulses with the bass too
+  dashLights.push({ mat: faciaMat, base: new THREE.Color(0x4df3ff) });
   // neon strips along the torpedo (dash front edge) — cyan left, orange right
   for (const [sx, col] of [[-0.75, 0x4df3ff], [0.75, 0xff8a3d]]) {
     const lm = p(new THREE.MeshBasicMaterial({ color: col, side: THREE.DoubleSide }));
@@ -266,5 +289,5 @@ export function buildCar(patch) {
   blob.position.y = 0.04;
   car.add(blob);
 
-  return { group: car, wheels, glow, blob, glass, cockpit, steeringWheelGroup, vinylGroup, dashLights };
+  return { group: car, wheels, glow, blob, glass, cockpit, steeringWheelGroup, vinylGroup, dashLights, headLights, headMat };
 }

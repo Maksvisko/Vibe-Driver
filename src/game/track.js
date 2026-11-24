@@ -53,28 +53,28 @@ export class Track {
     const c = document.createElement('canvas');
     c.width = 256; c.height = 256;
     const g = c.getContext('2d');
-    // dark graphite asphalt (not tar-black)
-    g.fillStyle = '#1e2029';
+    // dark graphite asphalt — clearly visible in the dark (not tar-black)
+    g.fillStyle = '#242734';
     g.fillRect(0, 0, 256, 256);
     // asphalt noise
     for (let i = 0; i < 2600; i++) {
-      const v = 24 + Math.random() * 30;
+      const v = 28 + Math.random() * 34;
       g.fillStyle = `rgba(${v},${v},${v + 8},0.55)`;
       g.fillRect(Math.random() * 256, Math.random() * 256, 2, 2);
     }
-    // edge lines — white solid strips along the barriers
-    g.fillStyle = 'rgba(255,255,255,0.25)'; // soft glow halo
+    // edge lines — bright white solid strips along the barriers
+    g.fillStyle = 'rgba(255,255,255,0.3)'; // soft glow halo
     g.fillRect(3, 0, 12, 256);
     g.fillRect(241, 0, 12, 256);
-    g.fillStyle = '#f2f4ff';
+    g.fillStyle = '#ffffff';
     g.fillRect(6, 0, 6, 256);
     g.fillRect(244, 0, 6, 256);
-    // center dashes — bright golden-yellow with glow
-    g.fillStyle = 'rgba(255,233,77,0.35)';
-    g.fillRect(120, 12, 16, 70);
+    // center dashes — bright neon-white / golden-yellow with glow
+    g.fillStyle = 'rgba(255,240,160,0.4)';
+    g.fillRect(118, 10, 20, 74);
     g.fillStyle = '#ffe94d';
-    g.fillRect(124, 16, 8, 62);
-    g.fillStyle = 'rgba(255,233,77,0.3)';
+    g.fillRect(124, 14, 8, 66);
+    g.fillStyle = 'rgba(255,233,77,0.35)';
     g.fillRect(124, 78, 8, 6);
     const tex = new THREE.CanvasTexture(c);
     tex.wrapS = THREE.RepeatWrapping;

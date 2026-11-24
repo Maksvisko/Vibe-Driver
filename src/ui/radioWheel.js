@@ -22,7 +22,13 @@ export class RadioWheel {
     this._resizeBound = null;
   }
 
-  build() {
+  /**
+   * Render the track slots onto the disc. Called at playlist
+   * initialization (before the menu is ever opened) AND on every
+   * refresh — so the built-in tracks are already placed around the
+   * disc the first time the player presses TAB.
+   */
+  renderSlots() {
     this.disc.innerHTML = '';
     this.items = [];
     const n = this.music.tracks.length;
@@ -47,9 +53,16 @@ export class RadioWheel {
       this.disc.appendChild(el);
       this.items.push(el);
     });
+  }
 
-    // set wheel radius from stage size
+  /** Full refresh: re-render slots + re-measure the wheel radius. */
+  refreshTracks() {
+    this.renderSlots();
     this._resizeRadius();
+  }
+
+  build() {
+    this.refreshTracks();
     if (!this._resizeBound) {
       this._resizeBound = this._resizeRadius.bind(this);
       window.addEventListener('resize', this._resizeBound);
@@ -59,6 +72,10 @@ export class RadioWheel {
   _resizeRadius() {
     const stage = this.disc.parentElement;
     if (!stage) return;
+    // while the overlay is hidden (display:none) the stage has no
+    // layout — keep the previous/default radius instead of collapsing
+    // the slots to the center
+    if (stage.clientWidth === 0) return;
     const r = stage.clientWidth * 0.36;
     this.disc.style.setProperty('--wheel-r', `${r}px`);
   }
@@ -69,6 +86,11 @@ export class RadioWheel {
       this.selected = Math.max(0, this.music.index);
       this._snapTo(false);
       document.getElementById('radio').classList.remove('hidden');
+      // the overlay is visible now — measure the real stage size and
+      // place the slots at the correct radius (rAF in case layout
+      // hasn't settled yet)
+      this._resizeRadius();
+      requestAnimationFrame(() => this._resizeRadius());
       this._lastTs = performance.now();
       this._loop();
       this._updateSelectionUI();
