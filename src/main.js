@@ -37,17 +37,25 @@ try {
 }
 
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x07060f);
-scene.fog = new THREE.Fog(0x0b0820, 60, 340);
+// deep indigo / night violet sky — never pure black (no black box)
+scene.background = new THREE.Color(0x0e0920);
+// thick neon-night atmosphere: hides hard draw-distance edges
+scene.fog = new THREE.FogExp2(0x0e0920, 0.0035);
 
 // near tuned for cockpit view: 0.1 so dash/wheel never clip; far 600 matches fog
 const camera = new THREE.PerspectiveCamera(68, innerWidth / innerHeight, 0.1, 600);
 camera.position.set(0, 6.5, 16); // start above ground (never lerp up from y=0)
 
-// lights — moonlit night
-const hemi = new THREE.HemisphereLight(0x3a3a7a, 0x14101f, 1.15);
+// lights — moonlit neon night
+// ambient: cold blue tint, strong enough that every facet of the car
+// and buildings reads from any angle (no black blobs)
+const hemi = new THREE.HemisphereLight(0x3a3a7a, 0x14101f, 0.7);
 scene.add(hemi);
-const moon = new THREE.DirectionalLight(0x8fa8ff, 1.4);
+const ambient = new THREE.AmbientLight(0x334466, 0.65);
+scene.add(ambient);
+// moonlight from above-side — sharp PS1-era faceted shadows on the
+// low-poly bevels of the body
+const moon = new THREE.DirectionalLight(0x88aaff, 0.9);
 moon.position.set(-120, 180, -60);
 scene.add(moon);
 const neonFill = new THREE.DirectionalLight(0xff4df3, 0.35);
