@@ -51,7 +51,7 @@ camera.position.set(0, 6.5, 16); // start above ground (never lerp up from y=0)
 // and buildings reads from any angle (no black blobs)
 const hemi = new THREE.HemisphereLight(0x3a3a7a, 0x14101f, 0.7);
 scene.add(hemi);
-const ambient = new THREE.AmbientLight(0x334466, 0.65);
+const ambient = new THREE.AmbientLight(0x334466, 0.6);
 scene.add(ambient);
 // moonlight from above-side — sharp PS1-era faceted shadows on the
 // low-poly bevels of the body
@@ -101,6 +101,12 @@ const engine = new EngineSound();
 
 let state = 'intro'; // intro | driving | paused
 let radioOpen = false;
+
+// dynamic headlights (F) — two warm-white spotlights + lens emissive
+let headlightsOn = false;
+const HEADLIGHT_INTENSITY = 200; // candela (three r155+ physical units)
+const HEADLIGHT_BRIGHT = 0xfff8e7;
+const HEADLIGHT_DIM = 0x3a3a44;
 
 const wheel = new RadioWheel({
   disc: document.getElementById('wheel-disc'),
@@ -193,17 +199,17 @@ function updateCamera(dt, introMode = false) {
 
   if (cameraMode === CAM_COCKPIT) {
     // ---- first-person: HARD-ATTACHED to the car, zero position smoothing ----
-    // eye anchor: driver-left seat (local X=-0.3, Y=1.15, Z=0.1) — the
-    // world position is copied instantly every frame, the camera never
-    // lags, drifts or falls through the floor
+    // eye anchor: higher and slightly forward (X=-0.32, Y=1.35, Z=0.35) —
+    // the dash/hood stay in the bottom 25-30% of the screen, the top
+    // 70-75% is clean road view. World position is copied instantly, the
+    // camera never lags, drifts or falls through the floor.
     car.group.updateMatrixWorld(true);
-    tmpLocal.set(-0.3, 1.15, 0.1);
+    tmpLocal.set(-0.32, 1.35, 0.35);
     car.group.localToWorld(tmpLocal);
     camera.position.copy(tmpLocal);
 
-    // look strictly forward through the windshield — a point far ahead
-    // along the car's forward vector at eye/horizon height
-    tmpLocal.set(-0.3, 1.15, 20);
+    // look slightly above the horizon — road AND sky both clearly visible
+    tmpLocal.set(-0.32, 1.5, 20);
     car.group.localToWorld(tmpLocal);
     camera.lookAt(tmpLocal);
 
@@ -337,6 +343,22 @@ function handleGlobalKeys() {
   if (keys.wasPressed('KeyM')) {
     const on = engine.toggle();
     toast(`Звук двигателя: ${on ? 'ВКЛ' : 'ВЫКЛ'}`, 1400);
+  }
+
+  // headlights toggle (F) — dynamic spotlights + lens emissive
+  if (keys.wasPressed('KeyF')) {
+    headlightsOn = !headlightsOn;
+    if (car.headLights) {
+      for (const l of car.headLights) {
+        l.visible = headlightsOn;
+        l.intensity = headlightsOn ? HEADLIGHT_INTENSITY : 0;
+      }
+    }
+    // lens glow: bright warm-white when on, dim when off
+    if (car.headMat) {
+      car.headMat.color.setHex(headlightsOn ? HEADLIGHT_BRIGHT : HEADLIGHT_DIM);
+    }
+    toast(headlightsOn ? 'ФАРЫ: ВКЛ' : 'ФАРЫ: ВЫКЛ', 1400);
   }
 
   // quick music controls
